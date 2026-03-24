@@ -92,8 +92,8 @@ DISCOUNT_RANGE        = (5, 30) # % zbritje (min, max)
 # STOKU — Parametrat
 # ============================================================
 STOCKOUT_PROBABILITY       = 0.05   # 5% probabilitet stockout
-EXPIRY_LOSS_RATE           = 0.02   # 2% produkte perishable skadojnë
-SHRINKAGE_RATE             = 0.005  # 0.5% humbje nga vjedhja/dëmtimi
+EXPIRY_LOSS_RATE  = 0.005   # 0.5% 
+SHRINKAGE_RATE    = 0.001   # 0.1% humbje nga vjedhja/dëmtimi
 INITIAL_STOCK_FILL_PCT     = 0.75   # Store fillon me 75% stok
 
 # ============================================================

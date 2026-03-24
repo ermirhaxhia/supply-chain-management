@@ -131,23 +131,12 @@ def apply_sales_to_stock(
     products_map: dict,
     dt:           datetime
 ) -> dict:
-    """
-    Zbraz stokun bazuar në transaksionet e orës.
-
-    Parameters:
-        store_id     : ID e store-it
-        transactions : lista e transaksioneve të kësaj ore
-        products_map : {product_id: product_dict}
-        dt           : datetime e orës
-
-    Returns:
-        dict : statistikat e stokut për këtë orë
-    """
     stats = {
-        "stockouts":       0,
-        "low_stock_alerts":0,
-        "units_sold":      0,
+        "stockouts":        0,
+        "low_stock_alerts": 0,
+        "units_sold":       0,
     }
+    log_entries = []  # ← batch
 
     try:
         for txn in transactions:
@@ -160,38 +149,44 @@ def apply_sales_to_stock(
 
             stock_before = get_stock_level(store_id, product_id)
 
-            # Stockout — stoku nuk mjafton
             if stock_before <= 0:
                 stats["stockouts"] += 1
-                logger.debug(f"🚫 STOCKOUT: {product_id} në {store_id}")
                 continue
 
-            # Zbraz stokun
             stock_after = max(0, stock_before - quantity)
             set_stock_level(store_id, product_id, stock_after)
             stats["units_sold"] += quantity
 
-            # Regjistro në log
-            log_stock_change(
-                store_id, product_id,
-                stock_before, stock_after,
-                "Sale", dt
-            )
+            log_entries.append({
+                "log_id":       f"{LOG_ID_PREFIX}-{uuid.uuid4().hex[:10].upper()}",
+                "store_id":     store_id,
+                "product_id":   product_id,
+                "timestamp":    dt.isoformat(),
+                "stock_before": stock_before,
+                "stock_after":  stock_after,
+                "change_reason":"Sale",
+            })
 
-            # Alert nëse stoku është i ulët
             reorder_point = product.get("reorder_point", 20)
             if stock_after <= reorder_point:
                 stats["low_stock_alerts"] += 1
                 logger.warning(
                     f"⚠️  LOW STOCK: {product_id} në {store_id} "
-                    f"→ {stock_after} njësi (reorder point: {reorder_point})"
+                    f"→ {stock_after} njësi"
                 )
+
+        # ── 1 batch insert ────────────────────────────
+        if log_entries:
+            batch_size = 500
+            for i in range(0, len(log_entries), batch_size):
+                batch = log_entries[i:i + batch_size]
+                supabase.table("inventory_log").insert(batch).execute()
+            logger.info(f"  📝 {len(log_entries)} sale logs inserted (batch)")
 
     except Exception as e:
         logger.error(f"❌ ERROR në apply_sales_to_stock: {e}")
 
     return stats
-
 # ============================================================
 # HUMBJET — SKADIM DHE SHRINKAGE
 # ============================================================
@@ -267,19 +262,9 @@ def apply_losses(store_id: str, products: list, dt: datetime) -> dict:
 # ============================================================
 # RESTOCK — Furnizo store nga magazina
 # ============================================================
-def apply_restock(
-    store_id:    str,
-    products:    list,
-    dt:          datetime
-) -> int:
-    """
-    Furnizon produktet që kanë rënë nën reorder_point.
-    Simulon marrjen e mallit nga magazina.
-
-    Returns:
-        int : numri i produkteve të furnizuar
-    """
-    restocked = 0
+def apply_restock(store_id: str, products: list, dt: datetime) -> int:
+    restocked  = 0
+    log_entries = []
 
     try:
         lead_mult = get_config("lead_time_multiplier", 1.0)
@@ -291,14 +276,10 @@ def apply_restock(
             reorder_qty   = product.get("reorder_qty",   50)
             max_stock     = product.get("max_stock",     100)
 
-            # Kontrollo nëse duhet restock
             if stock_level <= reorder_point:
+                # Lead time realist: 1-3 ditë ~ Poisson(2)
+                lead_time = int(np.random.poisson(2 * lead_mult))
 
-                # Lead time me variancë (Poisson)
-                base_lead = product.get("reorder_qty", 2)
-                lead_time = int(np.random.poisson(base_lead * lead_mult))
-
-                # Simulim: nëse lead_time == 0 → mbërrin menjëherë
                 if lead_time == 0:
                     qty_to_add   = min(reorder_qty, max_stock - stock_level)
                     stock_before = stock_level
@@ -307,16 +288,24 @@ def apply_restock(
                     set_stock_level(store_id, product_id, new_stock)
                     restocked += 1
 
-                    log_stock_change(
-                        store_id, product_id,
-                        stock_before, new_stock,
-                        "Restock", dt
-                    )
+                    log_entries.append({
+                        "log_id":       f"{LOG_ID_PREFIX}-{uuid.uuid4().hex[:10].upper()}",
+                        "store_id":     store_id,
+                        "product_id":   product_id,
+                        "timestamp":    dt.isoformat(),
+                        "stock_before": stock_before,
+                        "stock_after":  new_stock,
+                        "change_reason":"Restock",
+                    })
 
-                    logger.debug(
-                        f"📦 RESTOCK: {product_id} në {store_id} "
-                        f"→ +{qty_to_add} njësi (total: {new_stock})"
-                    )
+        # Batch insert
+        if log_entries:
+            batch_size = 500
+            for i in range(0, len(log_entries), batch_size):
+                supabase.table("inventory_log").insert(
+                    log_entries[i:i + batch_size]
+                ).execute()
+            logger.info(f"  📝 {len(log_entries)} restock logs inserted (batch)")
 
     except Exception as e:
         logger.error(f"❌ ERROR në apply_restock: {e}")
@@ -325,7 +314,6 @@ def apply_restock(
         logger.info(f"📦 {store_id} — Restock: {restocked} produkte")
 
     return restocked
-
 # ============================================================
 # RUN INVENTORY — Ekzekuto të gjitha për 1 orë
 # ============================================================
