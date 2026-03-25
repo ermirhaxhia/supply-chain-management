@@ -21,3 +21,19 @@ services:
         sync: false
       - key: FUEL_BASE_PRICE
         value: "185"
+
+  - type: cron
+    name: supply-chain-scheduler
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    schedule: "0 6-22 * * *"
+    startCommand: python scheduler/scheduler.py --manual
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: API_KEY_MASTER
+        sync: false
+      - key: FUEL_BASE_PRICE
+        value: "185"
