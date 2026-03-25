@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
-
+import httpx
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.settings import supabase
@@ -187,3 +187,21 @@ if __name__ == "__main__":
             scheduler.start()
         except KeyboardInterrupt:
             logger.info("⛔ Scheduler u ndal")
+
+
+def keep_alive():
+    """Ping API çdo 10 minuta për të parandaluar sleep."""
+    try:
+        url = "https://supply-chain-management-uc9u.onrender.com/health"
+        httpx.get(url, timeout=10)
+        logger.info("💓 Keep-alive ping dërguar")
+    except Exception as e:
+        logger.warning(f"⚠️  Keep-alive dështoi: {e}")
+
+# Shto në scheduler:
+scheduler.add_job(
+    keep_alive,
+    CronTrigger(minute="*/10"),
+    id="keep_alive",
+    name="Keep Alive Ping",
+)
