@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: supply-chain-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port 10000
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: API_KEY_MASTER
+        sync: false
+      - key: API_KEY_SALES
+        sync: false
+      - key: API_KEY_INVENTORY
+        sync: false
+      - key: API_KEY_LOGISTICS
+        sync: false
+      - key: API_KEY_PROCUREMENT
+        sync: false
+      - key: FUEL_BASE_PRICE
+        value: "185"
