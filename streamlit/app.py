@@ -942,7 +942,7 @@ def page_analytics():
         line=dict(color=COLORS['gold'], width=2.5),
         marker=dict(size=6, color=COLORS['gold'], line=dict(color=COLORS['bg'], width=2)),
         fill="tozeroy",
-        fillcolor=f"{COLORS['gold']}0D",
+        fillcolor="rgba(201,168,76,0.05)",
         hovertemplate="Ora %{x}:00 — <b>%{y:,}</b> transaksione<extra></extra>",
     ))
     fig3.add_trace(go.Scatter(
@@ -1023,7 +1023,6 @@ def page_analytics():
             st.markdown('<div class="chart-card">', unsafe_allow_html=True)
             st.plotly_chart(fig5, use_container_width=True, config={"displayModeBar": False})
             st.markdown('</div>', unsafe_allow_html=True)
-
 # ============================================================
 # PAGE 3 — ANOMALY DETECTOR
 # ============================================================
