@@ -2,6 +2,7 @@
 # streamlit/app.py
 # Supply Chain Observability Dashboard — Premium UI
 # Bloomberg Terminal × Palantir Foundry aesthetic
+# MOBILE RESPONSIVE VERSION
 # ============================================================
 
 import streamlit as st
@@ -56,11 +57,12 @@ FONT_SANS  = "'DM Sans', 'Sora', sans-serif"
 FONT_DISPLAY = "'Sora', 'DM Sans', sans-serif"
 
 # ============================================================
-# GLOBAL CSS
+# RESPONSIVE CSS WITH MEDIA QUERIES
 # ============================================================
 def inject_css():
     st.markdown(f"""
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
     <style>
     /* ── Reset & Base ─────────────────────────────────── */
@@ -69,9 +71,15 @@ def inject_css():
         font-family: {FONT_SANS};
     }}
     .main .block-container {{
-        padding: 1.5rem 2rem 2rem;
+        padding: 1rem 1rem 1.5rem;
         max-width: 100%;
     }}
+    @media (min-width: 768px) {{
+        .main .block-container {{
+            padding: 1.5rem 2rem 2rem;
+        }}
+    }}
+    
     /* ── Hide Streamlit Branding ──────────────────────── */
     #MainMenu, footer, header {{ visibility: hidden; }}
     .stDeployButton {{ display: none; }}
@@ -80,9 +88,17 @@ def inject_css():
     [data-testid="stSidebar"] {{
         background: {COLORS['surface']} !important;
         border-right: 1px solid {COLORS['border']} !important;
+        min-width: 280px !important;
+        max-width: 320px !important;
+    }}
+    @media (max-width: 768px) {{
+        [data-testid="stSidebar"] {{
+            min-width: 100% !important;
+            max-width: 100% !important;
+        }}
     }}
     [data-testid="stSidebar"] .block-container {{
-        padding: 1.5rem 1rem;
+        padding: 1rem;
     }}
 
     /* ── Logo Area ────────────────────────────────────── */
@@ -90,32 +106,48 @@ def inject_css():
         display: flex;
         align-items: center;
         gap: 10px;
-        padding: 0.5rem 0 2rem;
+        padding: 0.5rem 0 1.5rem;
         border-bottom: 1px solid {COLORS['border']};
-        margin-bottom: 1.5rem;
+        margin-bottom: 1rem;
     }}
     .logo-mark {{
-        width: 36px;
-        height: 36px;
+        width: 32px;
+        height: 32px;
         background: linear-gradient(135deg, {COLORS['gold']}, {COLORS['gold2']});
         clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
         flex-shrink: 0;
     }}
+    @media (min-width: 768px) {{
+        .logo-mark {{
+            width: 36px;
+            height: 36px;
+        }}
+    }}
     .logo-text {{
         font-family: {FONT_DISPLAY};
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         font-weight: 600;
         color: {COLORS['text']};
         letter-spacing: 0.05em;
         text-transform: uppercase;
         line-height: 1.2;
     }}
+    @media (min-width: 768px) {{
+        .logo-text {{
+            font-size: 0.85rem;
+        }}
+    }}
     .logo-sub {{
-        font-size: 0.65rem;
+        font-size: 0.6rem;
         color: {COLORS['text2']};
         font-weight: 400;
         letter-spacing: 0.08em;
         text-transform: uppercase;
+    }}
+    @media (min-width: 768px) {{
+        .logo-sub {{
+            font-size: 0.65rem;
+        }}
     }}
 
     /* ── Nav Items ────────────────────────────────────── */
@@ -125,40 +157,67 @@ def inject_css():
         color: {COLORS['text3']};
         letter-spacing: 0.12em;
         text-transform: uppercase;
-        margin: 1.5rem 0 0.5rem;
+        margin: 1.25rem 0 0.5rem;
         padding-left: 0.5rem;
     }}
 
     /* ── Page Header ──────────────────────────────────── */
     .page-header {{
         display: flex;
-        align-items: flex-end;
-        justify-content: space-between;
-        margin-bottom: 2rem;
-        padding-bottom: 1.25rem;
+        flex-direction: column;
+        gap: 0.75rem;
+        margin-bottom: 1.25rem;
+        padding-bottom: 1rem;
         border-bottom: 1px solid {COLORS['border']};
+    }}
+    @media (min-width: 768px) {{
+        .page-header {{
+            flex-direction: row;
+            align-items: flex-end;
+            justify-content: space-between;
+            margin-bottom: 2rem;
+            padding-bottom: 1.25rem;
+        }}
     }}
     .page-title {{
         font-family: {FONT_DISPLAY};
-        font-size: 1.6rem;
+        font-size: 1.25rem;
         font-weight: 600;
         color: {COLORS['text']};
         letter-spacing: -0.02em;
         margin: 0;
-        line-height: 1;
+        line-height: 1.1;
+    }}
+    @media (min-width: 768px) {{
+        .page-title {{
+            font-size: 1.6rem;
+        }}
     }}
     .page-subtitle {{
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         color: {COLORS['text2']};
-        margin-top: 0.3rem;
+        margin-top: 0.25rem;
         font-weight: 400;
         letter-spacing: 0.01em;
+        line-height: 1.3;
+    }}
+    @media (min-width: 768px) {{
+        .page-subtitle {{
+            font-size: 0.8rem;
+            margin-top: 0.3rem;
+        }}
     }}
     .page-timestamp {{
         font-family: {FONT_MONO};
-        font-size: 0.7rem;
+        font-size: 0.65rem;
         color: {COLORS['text3']};
-        text-align: right;
+        text-align: left;
+    }}
+    @media (min-width: 768px) {{
+        .page-timestamp {{
+            text-align: right;
+            font-size: 0.7rem;
+        }}
     }}
     .live-dot {{
         display: inline-block;
@@ -178,19 +237,30 @@ def inject_css():
     /* ── KPI Cards ────────────────────────────────────── */
     .kpi-grid {{
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(2, 1fr);
         gap: 1px;
         background: {COLORS['border']};
         border: 1px solid {COLORS['border']};
         border-radius: 8px;
         overflow: hidden;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1rem;
+    }}
+    @media (min-width: 640px) {{
+        .kpi-grid {{
+            grid-template-columns: repeat(4, 1fr);
+            margin-bottom: 1.5rem;
+        }}
     }}
     .kpi-card {{
         background: {COLORS['surface']};
-        padding: 1.4rem 1.6rem;
+        padding: 1rem;
         position: relative;
         transition: background 0.2s;
+    }}
+    @media (min-width: 768px) {{
+        .kpi-card {{
+            padding: 1.4rem 1.6rem;
+        }}
     }}
     .kpi-card:hover {{
         background: {COLORS['surface2']};
@@ -210,57 +280,85 @@ def inject_css():
     .kpi-card.amber::before {{ background: linear-gradient(90deg, {COLORS['amber']}, transparent); }}
 
     .kpi-label {{
-        font-size: 0.65rem;
+        font-size: 0.6rem;
         font-weight: 600;
         color: {COLORS['text3']};
-        letter-spacing: 0.1em;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
-        margin-bottom: 0.6rem;
+        margin-bottom: 0.4rem;
+    }}
+    @media (min-width: 768px) {{
+        .kpi-label {{
+            font-size: 0.65rem;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.6rem;
+        }}
     }}
     .kpi-value {{
         font-family: {FONT_MONO};
-        font-size: 1.75rem;
+        font-size: 1.25rem;
         font-weight: 500;
         color: {COLORS['text']};
         line-height: 1;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.3rem;
         letter-spacing: -0.02em;
     }}
+    @media (min-width: 768px) {{
+        .kpi-value {{
+            font-size: 1.75rem;
+            margin-bottom: 0.5rem;
+        }}
+    }}
     .kpi-delta {{
-        font-size: 0.7rem;
+        font-size: 0.65rem;
         font-weight: 500;
         font-family: {FONT_MONO};
+    }}
+    @media (min-width: 768px) {{
+        .kpi-delta {{
+            font-size: 0.7rem;
+        }}
     }}
     .kpi-delta.up   {{ color: {COLORS['green']}; }}
     .kpi-delta.down {{ color: {COLORS['red']}; }}
     .kpi-delta.neutral {{ color: {COLORS['text2']}; }}
-    .kpi-spark {{
-        position: absolute;
-        bottom: 1rem;
-        right: 1rem;
-        opacity: 0.4;
-    }}
 
     /* ── Section Headers ──────────────────────────────── */
     .section-header {{
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin: 1.75rem 0 1rem;
+        margin: 1.25rem 0 0.75rem;
+    }}
+    @media (min-width: 768px) {{
+        .section-header {{
+            margin: 1.75rem 0 1rem;
+        }}
     }}
     .section-title {{
         font-family: {FONT_DISPLAY};
-        font-size: 0.8rem;
+        font-size: 0.7rem;
         font-weight: 600;
         color: {COLORS['text2']};
-        letter-spacing: 0.08em;
+        letter-spacing: 0.06em;
         text-transform: uppercase;
+    }}
+    @media (min-width: 768px) {{
+        .section-title {{
+            font-size: 0.8rem;
+            letter-spacing: 0.08em;
+        }}
     }}
     .section-line {{
         flex: 1;
         height: 1px;
         background: {COLORS['border']};
-        margin-left: 1rem;
+        margin-left: 0.75rem;
+    }}
+    @media (min-width: 768px) {{
+        .section-line {{
+            margin-left: 1rem;
+        }}
     }}
 
     /* ── Chart Container ──────────────────────────────── */
@@ -268,16 +366,30 @@ def inject_css():
         background: {COLORS['surface']};
         border: 1px solid {COLORS['border']};
         border-radius: 8px;
-        padding: 1.25rem 1.5rem;
-        margin-bottom: 1rem;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+        overflow-x: auto;
+    }}
+    @media (min-width: 768px) {{
+        .chart-card {{
+            padding: 1.25rem 1.5rem;
+            margin-bottom: 1rem;
+        }}
     }}
     .chart-title {{
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         font-weight: 600;
         color: {COLORS['text2']};
-        letter-spacing: 0.06em;
+        letter-spacing: 0.05em;
         text-transform: uppercase;
-        margin-bottom: 1rem;
+        margin-bottom: 0.75rem;
+    }}
+    @media (min-width: 768px) {{
+        .chart-title {{
+            font-size: 0.75rem;
+            letter-spacing: 0.06em;
+            margin-bottom: 1rem;
+        }}
     }}
 
     /* ── Status Table ─────────────────────────────────── */
@@ -285,25 +397,55 @@ def inject_css():
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0.65rem 0;
+        padding: 0.5rem 0;
         border-bottom: 1px solid {COLORS['border']};
-        font-size: 0.8rem;
+        font-size: 0.75rem;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+    }}
+    @media (min-width: 768px) {{
+        .status-row {{
+            padding: 0.65rem 0;
+            font-size: 0.8rem;
+            flex-wrap: nowrap;
+            gap: 0;
+        }}
     }}
     .status-row:last-child {{ border-bottom: none; }}
-    .status-name {{ color: {COLORS['text2']}; font-family: {FONT_MONO}; }}
+    .status-name {{ 
+        color: {COLORS['text2']}; 
+        font-family: {FONT_MONO};
+        word-break: break-word;
+        flex: 1;
+        min-width: 120px;
+    }}
     .status-count {{
         font-family: {FONT_MONO};
         font-weight: 500;
         color: {COLORS['text']};
+        font-size: 0.8rem;
+    }}
+    @media (min-width: 768px) {{
+        .status-count {{
+            font-size: inherit;
+        }}
     }}
     .badge {{
-        padding: 2px 8px;
+        padding: 2px 6px;
         border-radius: 3px;
-        font-size: 0.6rem;
+        font-size: 0.55rem;
         font-weight: 600;
-        letter-spacing: 0.06em;
+        letter-spacing: 0.04em;
         text-transform: uppercase;
         font-family: {FONT_MONO};
+        white-space: nowrap;
+    }}
+    @media (min-width: 768px) {{
+        .badge {{
+            padding: 2px 8px;
+            font-size: 0.6rem;
+            letter-spacing: 0.06em;
+        }}
     }}
     .badge-ok     {{ background: {COLORS['green']}18; color: {COLORS['green']}; border: 1px solid {COLORS['green']}30; }}
     .badge-warn   {{ background: {COLORS['amber']}18; color: {COLORS['amber']}; border: 1px solid {COLORS['amber']}30; }}
@@ -314,46 +456,79 @@ def inject_css():
         background: {COLORS['surface']};
         border: 1px solid {COLORS['border']};
         border-radius: 8px;
-        padding: 1.25rem 1.5rem;
-        margin-bottom: 0.75rem;
+        padding: 1rem;
+        margin-bottom: 0.5rem;
         display: flex;
         align-items: flex-start;
-        gap: 1rem;
+        gap: 0.75rem;
         transition: border-color 0.2s;
+    }}
+    @media (min-width: 768px) {{
+        .anomaly-card {{
+            padding: 1.25rem 1.5rem;
+            margin-bottom: 0.75rem;
+            gap: 1rem;
+        }}
     }}
     .anomaly-card:hover {{ border-color: {COLORS['border2']}; }}
     .anomaly-card.critical {{ border-left: 3px solid {COLORS['red']}; }}
     .anomaly-card.warning  {{ border-left: 3px solid {COLORS['amber']}; }}
     .anomaly-card.info     {{ border-left: 3px solid {COLORS['blue']}; }}
     .anomaly-icon {{
-        width: 32px;
-        height: 32px;
+        width: 28px;
+        height: 28px;
         border-radius: 6px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         flex-shrink: 0;
+    }}
+    @media (min-width: 768px) {{
+        .anomaly-icon {{
+            width: 32px;
+            height: 32px;
+            font-size: 0.85rem;
+        }}
     }}
     .anomaly-icon.critical {{ background: {COLORS['red']}15; }}
     .anomaly-icon.warning  {{ background: {COLORS['amber']}15; }}
     .anomaly-icon.info     {{ background: {COLORS['blue']}15; }}
     .anomaly-title {{
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         font-weight: 600;
         color: {COLORS['text']};
-        margin-bottom: 0.2rem;
+        margin-bottom: 0.15rem;
+        line-height: 1.2;
+    }}
+    @media (min-width: 768px) {{
+        .anomaly-title {{
+            font-size: 0.85rem;
+            margin-bottom: 0.2rem;
+        }}
     }}
     .anomaly-detail {{
-        font-size: 0.73rem;
+        font-size: 0.7rem;
         color: {COLORS['text2']};
-        line-height: 1.5;
+        line-height: 1.4;
+    }}
+    @media (min-width: 768px) {{
+        .anomaly-detail {{
+            font-size: 0.73rem;
+            line-height: 1.5;
+        }}
     }}
     .anomaly-meta {{
         font-family: {FONT_MONO};
-        font-size: 0.65rem;
+        font-size: 0.6rem;
         color: {COLORS['text3']};
-        margin-top: 0.3rem;
+        margin-top: 0.25rem;
+    }}
+    @media (min-width: 768px) {{
+        .anomaly-meta {{
+            font-size: 0.65rem;
+            margin-top: 0.3rem;
+        }}
     }}
 
     /* ── Control Panel ────────────────────────────────── */
@@ -361,16 +536,29 @@ def inject_css():
         background: {COLORS['surface']};
         border: 1px solid {COLORS['border']};
         border-radius: 8px;
-        padding: 1.5rem;
-        margin-bottom: 1rem;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+    }}
+    @media (min-width: 768px) {{
+        .control-card {{
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }}
     }}
     .control-label {{
-        font-size: 0.65rem;
+        font-size: 0.6rem;
         font-weight: 600;
         color: {COLORS['text3']};
-        letter-spacing: 0.1em;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.4rem;
+    }}
+    @media (min-width: 768px) {{
+        .control-label {{
+            font-size: 0.65rem;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.5rem;
+        }}
     }}
 
     /* ── Streamlit Component Overrides ───────────────── */
@@ -389,10 +577,18 @@ def inject_css():
         color: {COLORS['text']} !important;
         border-radius: 6px !important;
         font-family: {FONT_SANS} !important;
-        font-size: 0.8rem !important;
+        font-size: 0.75rem !important;
         font-weight: 500 !important;
-        padding: 0.5rem 1.25rem !important;
+        padding: 0.4rem 1rem !important;
         transition: all 0.15s !important;
+        width: 100%;
+    }}
+    @media (min-width: 768px) {{
+        .stButton > button {{
+            font-size: 0.8rem !important;
+            padding: 0.5rem 1.25rem !important;
+            width: auto;
+        }}
     }}
     .stButton > button:hover {{
         border-color: {COLORS['gold']} !important;
@@ -408,6 +604,38 @@ def inject_css():
     }}
     .stDataFrame {{
         background: {COLORS['surface']} !important;
+    }}
+    
+    /* ── Responsive Columns ───────────────────────────── */
+    @media (max-width: 768px) {{
+        div[data-testid="column"] {{
+            width: 100% !important;
+            flex: 0 0 100% !important;
+            min-width: 100% !important;
+        }}
+    }}
+    
+    /* ── Radio Button Mobile Fix ──────────────────────── */
+    @media (max-width: 768px) {{
+        .stRadio > div {{
+            flex-direction: column !important;
+        }}
+        .stRadio > div > label {{
+            padding: 0.5rem 0 !important;
+        }}
+    }}
+    
+    /* ── Plotly Chart Responsiveness ────────────────── */
+    .js-plotly-plot {{
+        width: 100% !important;
+    }}
+    .js-plotly-plot .plotly {{
+        width: 100% !important;
+    }}
+    
+    /* ── Sidebar Footer ──────────────────────────────── */
+    [data-testid="stSidebar"] .stButton > button {{
+        margin-top: 1rem;
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -612,7 +840,7 @@ def render_status_table(rows):
     rows_html = "".join([f"""
     <div class="status-row">
         <span class="status-name">{r['name']}</span>
-        <div style="display:flex;align-items:center;gap:12px;">
+        <div style="display:flex;align-items:center;gap:8px;">
             <span class="status-count">{r['count']:,}</span>
             <span class="badge badge-{r['status']}">{r['label']}</span>
         </div>
@@ -771,8 +999,8 @@ def page_monitor():
         rows_html2 = "".join([f"""
         <div class="status-row">
             <span class="status-name">{r['name']}</span>
-            <div style="display:flex;align-items:center;gap:12px;">
-                <span class="status-count" style="font-size:0.8rem">{r['count']}</span>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span class="status-count" style="font-size:0.75rem">{r['count']}</span>
                 <span class="badge badge-{r['status']}">{r['label']}</span>
             </div>
         </div>""" for r in rows2])
