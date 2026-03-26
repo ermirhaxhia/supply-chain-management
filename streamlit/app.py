@@ -864,13 +864,23 @@ def page_analytics():
         store_rev = df_txn.groupby("store_id")["total"].sum().reset_index()
         store_rev = store_rev.sort_values("total", ascending=True).tail(15)
 
+        # Ndërto ngjyrat manualisht — colorscale + color=array
+        # shkakton ValueError në disa versione Plotly
+        max_rev = store_rev["total"].max() if not store_rev.empty else 1
+        bar_colors = [
+            COLORS['gold'] if v == max_rev
+            else (COLORS['gold'] + "90" if v > max_rev * 0.7
+            else (COLORS['gold'] + "60" if v > max_rev * 0.4
+            else COLORS['surface2']))
+            for v in store_rev["total"]
+        ]
+
         fig = go.Figure(go.Bar(
             x=store_rev["total"],
             y=store_rev["store_id"],
             orientation="h",
             marker=dict(
-                color=store_rev["total"],
-                colorscale=[[0, COLORS['surface2']], [0.5, COLORS['gold'] + "80"], [1, COLORS['gold']]],
+                color=bar_colors,
                 line_width=0,
             ),
             hovertemplate="<b>%{y}</b><br>Revenue: %{x:,.0f} L<extra></extra>",
@@ -1254,7 +1264,7 @@ def main():
 
         st.markdown('<div class="nav-section">Navigation</div>', unsafe_allow_html=True)
         page = st.radio(
-            "",
+            "Navigation Menu",
             ["Simulation Monitor", "Performance Analytics", "Anomaly Detector", "Control Panel"],
             label_visibility="collapsed",
         )
