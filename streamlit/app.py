@@ -170,14 +170,6 @@ def inject_css():
     }}
     .scm-tabs::-webkit-scrollbar {{ display: none; }}
 
-    /* button reset per navbar */
-    button.scm-tab {
-        background: none !important;
-        border: 1px solid transparent !important;
-        cursor: pointer !important;
-        font-family: inherit !important;
-    }
-
     .scm-tab {{
         display: flex;
         align-items: center;
@@ -1637,42 +1629,45 @@ PAGES = [
 def main():
     inject_css()
 
-    params  = st.query_params
-    page_id = params.get("p", "monitor")
-    valid   = [pg["id"] for pg in PAGES]
+    # ── Routing via query params ─────────────────────────
+    params   = st.query_params
+    page_id  = params.get("p", "monitor")
+    valid    = [pg["id"] for pg in PAGES]
     if page_id not in valid:
         page_id = "monitor"
 
-    # Navbar — button+onclick, jo <a href> (Streamlit e sanitizon)
-    tabs_html = ""
-    for pg in PAGES:
-        active   = "active" if pg["id"] == page_id else ""
-        pg_id    = pg["id"]
-        pg_icon  = pg["icon"]
-        pg_label = pg["label"]
-        tabs_html += (
-            '<button class="scm-tab ' + active + '" '
-            'onclick="window.location.search=\'?p=' + pg_id + '\'" '
-            'type="button">'
-            '<span class="scm-tab-icon">' + pg_icon + '</span>'
-            '<span class="scm-tab-label">' + pg_label + '</span>'
-            '</button>'
-        )
-
+    # ── TOP NAVBAR ───────────────────────────────────────
     now_str = datetime.now().strftime("%H:%M:%S")
-    navbar_html = (
-        '<div class="scm-navbar">'
-        '<div class="scm-logo">'
-        '<div class="scm-logo-mark"></div>'
-        '<span class="scm-logo-text">Supply Chain</span>'
-        '</div>'
-        '<div class="scm-tabs">' + tabs_html + '</div>'
-        '<div class="scm-live">'
-        '<div class="scm-live-dot"></div>' + now_str +
-        '</div></div>'
-    )
-    st.markdown(navbar_html, unsafe_allow_html=True)
+    st.markdown(f'''
+    <div class="scm-navbar">
+        <div class="scm-logo">
+            <div class="scm-logo-mark"></div>
+            <span class="scm-logo-text">Supply Chain</span>
+        </div>
+        <div class="scm-live">
+            <div class="scm-live-dot"></div>
+            ''' + now_str + '''
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)
 
+    nav_labels = [f"{pg['icon']} {pg['label']}" for pg in PAGES]
+    nav_ids    = [pg["id"] for pg in PAGES]
+    active_idx = nav_ids.index(page_id) if page_id in nav_ids else 0
+
+    selected = st.radio(
+        "nav",
+        nav_labels,
+        index=active_idx,
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+
+    selected_id = nav_ids[nav_labels.index(selected)]
+    if selected_id != page_id:
+        st.query_params["p"] = selected_id
+        st.rerun()
+    # ── Router ───────────────────────────────────────────
     if page_id == "monitor":
         page_monitor()
     elif page_id == "analytics":
