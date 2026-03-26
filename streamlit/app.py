@@ -783,7 +783,7 @@ def page_monitor():
 
     if not df_txn.empty:
         df_txn["timestamp"] = pd.to_datetime(df_txn["timestamp"])
-        df_txn["hour"] = df_txn["timestamp"].dt.floor("H")
+        df_txn["hour"] = df_txn["timestamp"].dt.floor("h")
         hourly = df_txn.groupby("hour").agg(
             transactions=("total","count"),
             revenue=("total","sum")
@@ -793,7 +793,7 @@ def page_monitor():
         fig.add_trace(go.Bar(
             x=hourly["hour"], y=hourly["transactions"],
             name="Transaksione",
-            marker_color=COLORS['gold'] + "60",
+            marker_color="rgba(201,168,76,0.38)",
             marker_line_color=COLORS['gold'],
             marker_line_width=1,
             hovertemplate="<b>%{y:,}</b> transaksione<extra></extra>",
@@ -869,8 +869,8 @@ def page_analytics():
         max_rev = store_rev["total"].max() if not store_rev.empty else 1
         bar_colors = [
             COLORS['gold'] if v == max_rev
-            else (COLORS['gold'] + "90" if v > max_rev * 0.7
-            else (COLORS['gold'] + "60" if v > max_rev * 0.4
+            else ("rgba(201,168,76,0.56)" if v > max_rev * 0.7
+            else ("rgba(201,168,76,0.38)" if v > max_rev * 0.4
             else COLORS['surface2']))
             for v in store_rev["total"]
         ]
@@ -979,7 +979,7 @@ def page_analytics():
         bins = np.histogram(df_txn["total"].clip(upper=10000), bins=40)
         fig4.add_trace(go.Bar(
             x=bins[1][:-1], y=bins[0],
-            marker_color=COLORS['green'] + "70",
+            marker_color="rgba(0,200,150,0.44)",
             marker_line_color=COLORS['green'],
             marker_line_width=0.5,
             name="Fatura",
@@ -1002,7 +1002,7 @@ def page_analytics():
             fig5 = go.Figure()
             fig5.add_trace(go.Bar(
                 x=daily_rev["date"].astype(str), y=daily_rev["total"],
-                marker_color=COLORS['blue'] + "50",
+                marker_color="rgba(74,158,255,0.31)",
                 marker_line_color=COLORS['blue'],
                 marker_line_width=0.5,
                 name="Revenue/ditë",
@@ -1088,10 +1088,10 @@ def page_anomalies():
                 ]
 
                 fig = go.Figure()
-                fig.add_vline(x=2.0,  line=dict(color=COLORS['red'] + "50",   width=1, dash="dot"))
-                fig.add_vline(x=-2.0, line=dict(color=COLORS['red'] + "50",   width=1, dash="dot"))
+                fig.add_vline(x=2.0,  line=dict(color="rgba(255,71,87,0.31)",   width=1, dash="dot"))
+                fig.add_vline(x=-2.0, line=dict(color="rgba(255,71,87,0.31)",   width=1, dash="dot"))
                 fig.add_vline(x=0,    line=dict(color=COLORS['border2'],       width=1))
-                fig.add_vrect(x0=-2, x1=2, fillcolor=COLORS['green'] + "05", line_width=0)
+                fig.add_vrect(x0=-2, x1=2, fillcolor="rgba(0,200,150,0.02)", line_width=0)
 
                 fig.add_trace(go.Bar(
                     x=df_z["z_score"],
