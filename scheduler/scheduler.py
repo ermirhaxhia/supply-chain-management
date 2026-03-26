@@ -92,10 +92,6 @@ def keep_alive():
 # SIMULATION TICK — Ekzekutohet çdo orë
 # ============================================================
 def simulation_tick():
-    """
-    Ekzekuton 1 cikël simulimi për të gjitha store-et.
-    Thirret çdo orë nga BlockingScheduler.
-    """
     global _stock_cache, _initialized
 
     dt = datetime.now().replace(minute=0, second=0, microsecond=0)
@@ -105,7 +101,6 @@ def simulation_tick():
     logger.info("=" * 60)
 
     try:
-        # ── 0. Config + inicializim (1 herë) ─────────────
         load_simulation_config()
 
         if not _initialized:
@@ -115,25 +110,33 @@ def simulation_tick():
         products_map = {p["product_id"]: p for p in _products}
         wh_id        = _warehouses[0]["warehouse_id"]
 
-        # ── 1. Marketing (ora 07:00) ──────────────────────
-        run_marketing_day(_categories, dt)
+        # ── 1. Marketing — çdo orë (largo guard clause) ──
+        from simulation.marketing_module import run_marketing_day, load_active_campaigns
+        load_active_campaigns(dt)
+        if dt.hour == 7:
+            run_marketing_day(_categories, dt)
 
-        # ── 2. Transport (ora 06:00 dhe 14:00) ───────────
-        run_transport_day(_routes, _vehicles, _drivers, dt)
+        # ── 2. Transport — çdo orë (largo guard clause) ──
+        from simulation.transport_module import run_transport_day
+        # Thirr çdo orë, jo vetëm 6 dhe 14
+        _run_transport_always(_routes, _vehicles, _drivers, dt)
 
         # ── 3. Sales + Inventory për çdo store ───────────
         for store in _stores:
             store_id = store["store_id"]
 
             # Shitjet
-            sales_stats  = run_sales_hour(store, _products, dt)
+            run_sales_hour(store, _products, dt)
 
-            # Lexo transaksionet e kësaj ore nga Supabase
+            # Merr transaksionet — shto buffer 5 min
+            from datetime import timedelta
+            ts_start = (dt - timedelta(minutes=5)).isoformat()
+
             txn_resp = (
                 supabase.table("transactions")
                 .select("product_id, quantity, total, discount_pct")
                 .eq("store_id", store_id)
-                .gte("timestamp", dt.isoformat())
+                .gte("timestamp", ts_start)
                 .execute()
             )
             transactions = txn_resp.data or []
@@ -143,10 +146,9 @@ def simulation_tick():
                 store, _products, products_map, transactions, dt
             )
 
-            # Purchasing (ora 08:00)
-            run_purchasing(
-                store, _products, _stock_cache, wh_id, dt
-            )
+            # Purchasing — çdo orë (largo guard clause)
+            if dt.hour == 8:
+                run_purchasing(store, _products, _stock_cache, wh_id, dt)
 
         # ── 4. Warehouse Snapshots ────────────────────────
         shp_resp = (
@@ -157,11 +159,47 @@ def simulation_tick():
         )
         run_warehouse_hour(_warehouses, shp_resp.data or [], dt)
 
+        # ── 5. Agregim Orësh ← I MUNGONTE! ───────────────
+        from aggregation.hourly_aggregator import run_hourly_aggregation
+        run_hourly_aggregation(dt)
+
+        # ── 6. Agregim Ditor (ora 23:00) ──────────────────
+        if dt.hour == 23:
+            from aggregation.daily_aggregator import run_daily_aggregation
+            run_daily_aggregation(dt)
+
+        # ── 7. Agregim Mujor (ditë 1, ora 00:00) ──────────
+        if dt.day == 1 and dt.hour == 0:
+            from aggregation.monthly_aggregator import run_monthly_aggregation
+            run_monthly_aggregation(dt)
+
         logger.info(f"✅ TICK KOMPLETUAR | {dt.strftime('%H:%M')}")
 
     except Exception as e:
         logger.critical(f"❌ TICK DËSHTOI: {e}", exc_info=True)
 
+
+def _run_transport_always(routes, vehicles, drivers, dt):
+    """Transport çdo orë — jo vetëm 6 dhe 14."""
+    from simulation.transport_module import generate_shipment
+    import numpy as np
+    import uuid
+    from config.constants import SHIPMENT_ID_PREFIX
+
+    shipments = []
+    for route in routes:
+        if not vehicles or not drivers:
+            continue
+        vehicle  = np.random.choice(vehicles)
+        driver   = np.random.choice(drivers)
+        shipment = generate_shipment(route, vehicle, driver, dt)
+        if shipment:
+            shipments.append(shipment)
+
+    if shipments:
+        from config.settings import supabase
+        supabase.table("shipments").insert(shipments).execute()
+        logger.info(f"🚛 Transport: {len(shipments)} dërgesa")
 
 # ============================================================
 # MAIN

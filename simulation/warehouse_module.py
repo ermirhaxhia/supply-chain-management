@@ -30,57 +30,28 @@ logger = logging.getLogger("warehouse_module")
 # ============================================================
 # GJENERO SNAPSHOT PËR 1 MAGAZINË
 # ============================================================
-def generate_warehouse_snapshot(
-    warehouse: dict,
-    shipments: list,
-    dt:        datetime
-) -> dict | None:
-    """
-    Gjeneron snapshot të gjendjes së magazinës për 1 orë.
-
-    Llogarit:
-    - Kapacitetin e përdorur
-    - Inbound/Outbound units
-    - Labor hours
-    - Orders processed
-
-    Returns:
-        dict : snapshot i plotë
-    """
+def generate_warehouse_snapshot(warehouse, shipments, dt):
     try:
         warehouse_id = warehouse["warehouse_id"]
         capacity_m3  = warehouse.get("capacity_m3", 1000)
 
-        # ── Dërgesat e kësaj ore ──────────────────────────
-        wh_shipments = [
-            s for s in shipments
-            if s.get("warehouse_id") == warehouse_id
-        ]
+        # ── FIX: Largo filtrin e gabuar warehouse_id ─────
+        # Shipments ka route_id, jo warehouse_id
+        # Merr të gjitha shipments dhe llogarit outbound total
+        outbound_units = sum(s.get("units_delivered", 0) for s in shipments)
 
-        # ── Outbound (njësi të dërguara) ──────────────────
-        outbound_units = sum(
-            s.get("units_delivered", 0) for s in wh_shipments
-        )
-
-        # ── Inbound (mallra që hyjnë nga furnizuesit) ─────
-        # Simulohet si % e outbound + variancë
+        # Inbound
         inbound_units = int(outbound_units * np.random.uniform(0.8, 1.2))
-        inbound_units = max(0, inbound_units)
+        inbound_units = max(50, inbound_units)  # minimum 50 njësi
 
-        # ── Kapaciteti i përdorur ─────────────────────────
-        # Fillojmë me 60-80% dhe ndryshon me inbound/outbound
-        base_utilization = np.random.uniform(0.60, 0.80)
-
-        # Black Swan — çrregullim i supply chain
-        active_event = get_config("active_event", 0.0)
-        if active_event in [1, 2]:  # Luftë ose pandemi
-            base_utilization = np.random.uniform(0.85, 0.98)
-            logger.warning(f"⚠️  {warehouse_id}: Kapacitet kritik nga eventi!")
+        # Kapaciteti
+        active_event     = get_config("active_event", 0.0)
+        base_utilization = np.random.uniform(0.85, 0.98) if active_event in [1, 2] \
+                           else np.random.uniform(0.60, 0.80)
 
         used_capacity_m3 = round(capacity_m3 * base_utilization, 1)
 
-        # ── Labor Hours ───────────────────────────────────
-        # Peak orë → më shumë punëtorë
+        # Labor hours
         if dt.hour in [8, 9, 17, 18]:
             labor_hours = np.random.uniform(15, 25)
         elif dt.hour in [6, 7, 20, 21]:
@@ -88,12 +59,9 @@ def generate_warehouse_snapshot(
         else:
             labor_hours = np.random.uniform(8, 18)
 
-        # ── Orders Processed ──────────────────────────────
-        orders_processed = len(wh_shipments) + int(
-            np.random.poisson(3)  # porosi shtesë
-        )
+        orders_processed = max(1, int(np.random.poisson(5)))
 
-        snapshot = {
+        return {
             "snapshot_id":     f"{SNAPSHOT_ID_PREFIX}-{uuid.uuid4().hex[:10].upper()}",
             "warehouse_id":    warehouse_id,
             "timestamp":       dt.isoformat(),
@@ -103,16 +71,6 @@ def generate_warehouse_snapshot(
             "labor_hours":     round(labor_hours, 1),
             "orders_processed":orders_processed,
         }
-
-        logger.debug(
-            f"🏭 {warehouse_id} | "
-            f"Cap={base_utilization*100:.1f}% | "
-            f"In={inbound_units} | Out={outbound_units} | "
-            f"Labor={labor_hours:.1f}h"
-        )
-
-        return snapshot
-
     except Exception as e:
         logger.error(f"❌ ERROR në generate_warehouse_snapshot: {e}")
         return None
