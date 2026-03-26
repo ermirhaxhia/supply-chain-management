@@ -1627,8 +1627,6 @@ PAGES = [
 # MAIN APP
 # ============================================================
 def main():
-    inject_css()
-
     # ── Routing via query params ─────────────────────────
     params   = st.query_params
     page_id  = params.get("p", "monitor")
@@ -1636,7 +1634,7 @@ def main():
     if page_id not in valid:
         page_id = "monitor"
 
-    # ── TOP NAVBAR ───────────────────────────────────────
+    # ── Ndërto tabs HTML ─────────────────────────────────
     tabs_html = ""
     for pg in PAGES:
         active = "active" if pg["id"] == page_id else ""
@@ -1647,6 +1645,9 @@ def main():
         </a>"""
 
     now_str = datetime.now().strftime("%H:%M:%S")
+
+    # CSS + NAVBAR bashkë — parandalon rendering raw HTML
+    inject_css()
     st.markdown(f"""
     <div class="scm-navbar">
         <div class="scm-logo">
