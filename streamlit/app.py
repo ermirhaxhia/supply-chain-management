@@ -170,7 +170,15 @@ def inject_css():
     }}
     .scm-tabs::-webkit-scrollbar {{ display: none; }}
 
-    .scm-tab {{
+    /* Reset button element që zëvendëson <a> */
+    button.scm-tab {
+        background: none;
+        border: 1px solid transparent;
+        cursor: pointer;
+        font-family: inherit;
+    }
+
+    .scm-tab {
         display: flex;
         align-items: center;
         gap: 6px;
@@ -1627,27 +1635,30 @@ PAGES = [
 # MAIN APP
 # ============================================================
 def main():
+    inject_css()
+
     # ── Routing via query params ─────────────────────────
-    params   = st.query_params
-    page_id  = params.get("p", "monitor")
-    valid    = [pg["id"] for pg in PAGES]
+    params  = st.query_params
+    page_id = params.get("p", "monitor")
+    valid   = [pg["id"] for pg in PAGES]
     if page_id not in valid:
         page_id = "monitor"
 
-    # ── Ndërto tabs HTML ─────────────────────────────────
+    # ── TOP NAVBAR me JavaScript onclick (jo <a href>) ───
+    # Streamlit Cloud sanitizon <a href="?p=..."> → raw text
+    # Zgjidhja: onclick + window.location.search
     tabs_html = ""
     for pg in PAGES:
-        active = "active" if pg["id"] == page_id else ""
-        tabs_html += f"""
-        <a class="scm-tab {active}" href="?p={pg['id']}">
+        active    = "active" if pg["id"] == page_id else ""
+        tabs_html += f"""<button
+            class="scm-tab {active}"
+            onclick="window.location.search='?p={pg['id']}'"
+            type="button">
             <span class="scm-tab-icon">{pg['icon']}</span>
             <span class="scm-tab-label">{pg['label']}</span>
-        </a>"""
+        </button>"""
 
     now_str = datetime.now().strftime("%H:%M:%S")
-
-    # CSS + NAVBAR bashkë — parandalon rendering raw HTML
-    inject_css()
     st.markdown(f"""
     <div class="scm-navbar">
         <div class="scm-logo">
