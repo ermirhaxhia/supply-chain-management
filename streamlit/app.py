@@ -25,7 +25,7 @@ st.set_page_config(
     page_title="Supply Chain Intelligence",
     page_icon="◈",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # ============================================================
@@ -84,21 +84,108 @@ def inject_css():
     #MainMenu, footer, header {{ visibility: hidden; }}
     .stDeployButton {{ display: none; }}
 
-    /* ── Sidebar ──────────────────────────────────────── */
+    /* ── Sidebar — Desktop only ───────────────────────── */
     [data-testid="stSidebar"] {{
         background: {COLORS['surface']} !important;
         border-right: 1px solid {COLORS['border']} !important;
-        min-width: 280px !important;
-        max-width: 320px !important;
-    }}
-    @media (max-width: 768px) {{
-        [data-testid="stSidebar"] {{
-            min-width: 100% !important;
-            max-width: 100% !important;
-        }}
+        min-width: 260px !important;
+        max-width: 300px !important;
     }}
     [data-testid="stSidebar"] .block-container {{
         padding: 1rem;
+    }}
+    /* ── Hide sidebar + hamburger on mobile ───────────── */
+    @media (max-width: 767px) {{
+        [data-testid="stSidebar"],
+        [data-testid="collapsedControl"],
+        button[kind="header"] {{
+            display: none !important;
+        }}
+        .main .block-container {{
+            padding-bottom: 80px !important;
+        }}
+    }}
+    /* ── Mobile Bottom Tab Bar ────────────────────────── */
+    .mobile-nav {{
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: {COLORS['surface']};
+        border-top: 1px solid {COLORS['border']};
+        display: none;
+        z-index: 9999;
+        padding-bottom: env(safe-area-inset-bottom, 0);
+    }}
+    @media (max-width: 767px) {{
+        .mobile-nav {{ display: flex !important; }}
+    }}
+    .mobile-nav-item {{
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0.55rem 0.25rem;
+        gap: 3px;
+        cursor: pointer;
+        background: none;
+        border: none;
+        text-decoration: none;
+        -webkit-tap-highlight-color: transparent;
+    }}
+    .mobile-nav-icon {{
+        font-size: 1.1rem;
+        line-height: 1;
+        color: {COLORS['text3']};
+        transition: color 0.15s;
+    }}
+    .mobile-nav-label {{
+        font-size: 0.5rem;
+        font-weight: 600;
+        color: {COLORS['text3']};
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        font-family: {FONT_SANS};
+        transition: color 0.15s;
+    }}
+    /* ── Mobile Top Mini-bar ──────────────────────────── */
+    .mobile-topbar {{
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.6rem 0 0.8rem;
+        margin-bottom: 0.5rem;
+        border-bottom: 1px solid {COLORS['border']};
+    }}
+    @media (max-width: 767px) {{
+        .mobile-topbar {{ display: flex !important; }}
+    }}
+    .mobile-logo {{
+        display: flex;
+        align-items: center;
+        gap: 7px;
+    }}
+    .mobile-logo-mark {{
+        width: 22px;
+        height: 22px;
+        background: linear-gradient(135deg, {COLORS['gold']}, {COLORS['gold2']});
+        clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    }}
+    .mobile-logo-text {{
+        font-family: {FONT_DISPLAY};
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: {COLORS['text']};
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }}
+    .mobile-page-name {{
+        font-family: {FONT_MONO};
+        font-size: 0.6rem;
+        color: {COLORS['text3']};
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
     }}
 
     /* ── Logo Area ────────────────────────────────────── */
@@ -1482,24 +1569,34 @@ def page_control():
 # ============================================================
 # MAIN APP
 # ============================================================
+PAGES = ["Simulation Monitor", "Performance Analytics", "Anomaly Detector", "Control Panel"]
+ICONS = ["◉", "◈", "◎", "◐"]
+ICONS_SHORT = ["Monitor", "Analytics", "Anomaly", "Control"]
+
 def main():
     inject_css()
 
-    # ── Sidebar ─────────────────────────────────────────
+    # ── Session state per page ───────────────────────────
+    if "page" not in st.session_state:
+        st.session_state.page = "Simulation Monitor"
+
+    # ── Desktop Sidebar ──────────────────────────────────
     with st.sidebar:
         render_logo()
-
         st.markdown('<div class="nav-section">Navigation</div>', unsafe_allow_html=True)
-        page = st.radio(
-            "Navigation Menu",
-            ["Simulation Monitor", "Performance Analytics", "Anomaly Detector", "Control Panel"],
+
+        page_sidebar = st.radio(
+            "Navigation",
+            PAGES,
+            index=PAGES.index(st.session_state.page),
             label_visibility="collapsed",
         )
+        st.session_state.page = page_sidebar
 
         st.markdown(f"""
-        <div style="margin-top:auto;padding-top:2rem;border-top:1px solid {COLORS['border']};margin-top:3rem">
-            <div style="font-size:0.65rem;color:{COLORS['text3']};letter-spacing:0.06em">
-                SUPPLY CHAIN MANAGEMENT<br>
+        <div style="padding-top:2.5rem;border-top:1px solid {COLORS['border']};margin-top:3rem">
+            <div style="font-size:0.6rem;color:{COLORS['text3']};letter-spacing:0.05em;line-height:1.8">
+                SUPPLY CHAIN MGMT<br>
                 v1.0.0 · Albania Network<br>
                 15 Stores · 500 Products<br>
                 Scheduler: GitHub Actions
@@ -1507,11 +1604,42 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
+        st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
         if st.button("Refresh Data"):
             st.cache_data.clear()
             st.rerun()
 
-    # ── Router ──────────────────────────────────────────
+    # ── Mobile Top Bar ───────────────────────────────────
+    st.markdown(f"""
+    <div class="mobile-topbar">
+        <div class="mobile-logo">
+            <div class="mobile-logo-mark"></div>
+            <div class="mobile-logo-text">Supply Chain</div>
+        </div>
+        <div class="mobile-page-name">{st.session_state.page.split()[0]}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Mobile Bottom Nav ────────────────────────────────
+    # Uses URL query params to handle mobile navigation
+    params = st.query_params
+    if "p" in params:
+        idx = int(params["p"])
+        if 0 <= idx < len(PAGES):
+            st.session_state.page = PAGES[idx]
+
+    nav_items = "".join([
+        f"""<a class="mobile-nav-item {'active' if PAGES[i]==st.session_state.page else ''}"
+               href="?p={i}" style="text-decoration:none">
+            <span class="mobile-nav-icon" style="color:{'#C9A84C' if PAGES[i]==st.session_state.page else '#4A5568'}">{ICONS[i]}</span>
+            <span class="mobile-nav-label" style="color:{'#C9A84C' if PAGES[i]==st.session_state.page else '#4A5568'}">{ICONS_SHORT[i]}</span>
+        </a>"""
+        for i in range(len(PAGES))
+    ])
+    st.markdown(f'<div class="mobile-nav">{nav_items}</div>', unsafe_allow_html=True)
+
+    # ── Router ───────────────────────────────────────────
+    page = st.session_state.page
     if page == "Simulation Monitor":
         page_monitor()
     elif page == "Performance Analytics":
