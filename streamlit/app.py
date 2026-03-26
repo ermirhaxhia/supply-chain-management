@@ -170,15 +170,15 @@ def inject_css():
     }}
     .scm-tabs::-webkit-scrollbar {{ display: none; }}
 
-    /* Reset button element që zëvendëson <a> */
+    /* button reset per navbar */
     button.scm-tab {
-        background: none;
-        border: 1px solid transparent;
-        cursor: pointer;
-        font-family: inherit;
+        background: none !important;
+        border: 1px solid transparent !important;
+        cursor: pointer !important;
+        font-family: inherit !important;
     }
 
-    .scm-tab {
+    .scm-tab {{
         display: flex;
         align-items: center;
         gap: 6px;
@@ -1637,45 +1637,42 @@ PAGES = [
 def main():
     inject_css()
 
-    # ── Routing via query params ─────────────────────────
     params  = st.query_params
     page_id = params.get("p", "monitor")
     valid   = [pg["id"] for pg in PAGES]
     if page_id not in valid:
         page_id = "monitor"
 
-    # ── TOP NAVBAR me JavaScript onclick (jo <a href>) ───
-    # Streamlit Cloud sanitizon <a href="?p=..."> → raw text
-    # Zgjidhja: onclick + window.location.search
+    # Navbar — button+onclick, jo <a href> (Streamlit e sanitizon)
     tabs_html = ""
     for pg in PAGES:
-        active    = "active" if pg["id"] == page_id else ""
-        tabs_html += f"""<button
-            class="scm-tab {active}"
-            onclick="window.location.search='?p={pg['id']}'"
-            type="button">
-            <span class="scm-tab-icon">{pg['icon']}</span>
-            <span class="scm-tab-label">{pg['label']}</span>
-        </button>"""
+        active   = "active" if pg["id"] == page_id else ""
+        pg_id    = pg["id"]
+        pg_icon  = pg["icon"]
+        pg_label = pg["label"]
+        tabs_html += (
+            '<button class="scm-tab ' + active + '" '
+            'onclick="window.location.search=\'?p=' + pg_id + '\'" '
+            'type="button">'
+            '<span class="scm-tab-icon">' + pg_icon + '</span>'
+            '<span class="scm-tab-label">' + pg_label + '</span>'
+            '</button>'
+        )
 
     now_str = datetime.now().strftime("%H:%M:%S")
-    st.markdown(f"""
-    <div class="scm-navbar">
-        <div class="scm-logo">
-            <div class="scm-logo-mark"></div>
-            <span class="scm-logo-text">Supply Chain</span>
-        </div>
-        <div class="scm-tabs">
-            {tabs_html}
-        </div>
-        <div class="scm-live">
-            <div class="scm-live-dot"></div>
-            {now_str}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    navbar_html = (
+        '<div class="scm-navbar">'
+        '<div class="scm-logo">'
+        '<div class="scm-logo-mark"></div>'
+        '<span class="scm-logo-text">Supply Chain</span>'
+        '</div>'
+        '<div class="scm-tabs">' + tabs_html + '</div>'
+        '<div class="scm-live">'
+        '<div class="scm-live-dot"></div>' + now_str +
+        '</div></div>'
+    )
+    st.markdown(navbar_html, unsafe_allow_html=True)
 
-    # ── Router ───────────────────────────────────────────
     if page_id == "monitor":
         page_monitor()
     elif page_id == "analytics":
