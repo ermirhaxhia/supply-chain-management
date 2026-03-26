@@ -84,108 +84,161 @@ def inject_css():
     #MainMenu, footer, header {{ visibility: hidden; }}
     .stDeployButton {{ display: none; }}
 
-    /* ── Sidebar — Desktop only ───────────────────────── */
-    [data-testid="stSidebar"] {{
-        background: {COLORS['surface']} !important;
-        border-right: 1px solid {COLORS['border']} !important;
-        min-width: 260px !important;
-        max-width: 300px !important;
+    /* ── Hide sidebar completely ──────────────────────── */
+    [data-testid="stSidebar"],
+    [data-testid="collapsedControl"],
+    section[data-testid="stSidebar"],
+    div[data-testid="stSidebarCollapsedControl"] {{
+        display: none !important;
+        width: 0 !important;
+        visibility: hidden !important;
     }}
-    [data-testid="stSidebar"] .block-container {{
-        padding: 1rem;
+    .main .block-container {{
+        padding: 0 1rem 1.5rem !important;
+        max-width: 100% !important;
     }}
-    /* ── Hide sidebar + hamburger on mobile ───────────── */
-    @media (max-width: 767px) {{
-        [data-testid="stSidebar"],
-        [data-testid="collapsedControl"],
-        button[kind="header"] {{
-            display: none !important;
-        }}
+    @media (min-width: 768px) {{
         .main .block-container {{
-            padding-bottom: 80px !important;
+            padding: 0 2rem 2rem !important;
         }}
     }}
-    /* ── Mobile Bottom Tab Bar ────────────────────────── */
-    .mobile-nav {{
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        background: {COLORS['surface']};
-        border-top: 1px solid {COLORS['border']};
-        display: none;
-        z-index: 9999;
-        padding-bottom: env(safe-area-inset-bottom, 0);
-    }}
-    @media (max-width: 767px) {{
-        .mobile-nav {{ display: flex !important; }}
-    }}
-    .mobile-nav-item {{
-        flex: 1;
+
+    /* ── TOP NAVBAR ───────────────────────────────────── */
+    .scm-navbar {{
         display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 0.55rem 0.25rem;
-        gap: 3px;
-        cursor: pointer;
-        background: none;
-        border: none;
-        text-decoration: none;
-        -webkit-tap-highlight-color: transparent;
-    }}
-    .mobile-nav-icon {{
-        font-size: 1.1rem;
-        line-height: 1;
-        color: {COLORS['text3']};
-        transition: color 0.15s;
-    }}
-    .mobile-nav-label {{
-        font-size: 0.5rem;
-        font-weight: 600;
-        color: {COLORS['text3']};
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        font-family: {FONT_SANS};
-        transition: color 0.15s;
-    }}
-    /* ── Mobile Top Mini-bar ──────────────────────────── */
-    .mobile-topbar {{
-        display: none;
         align-items: center;
         justify-content: space-between;
-        padding: 0.6rem 0 0.8rem;
-        margin-bottom: 0.5rem;
+        padding: 0 0 0 0;
+        height: 54px;
+        background: {COLORS['surface']};
         border-bottom: 1px solid {COLORS['border']};
+        margin: 0 -1rem 1.5rem;
+        padding: 0 1rem;
+        position: sticky;
+        top: 0;
+        z-index: 999;
+        gap: 0.5rem;
     }}
-    @media (max-width: 767px) {{
-        .mobile-topbar {{ display: flex !important; }}
+    @media (min-width: 768px) {{
+        .scm-navbar {{
+            margin: 0 -2rem 2rem;
+            padding: 0 2rem;
+            height: 56px;
+        }}
     }}
-    .mobile-logo {{
+
+    /* Logo group */
+    .scm-logo {{
         display: flex;
         align-items: center;
-        gap: 7px;
+        gap: 8px;
+        flex-shrink: 0;
     }}
-    .mobile-logo-mark {{
-        width: 22px;
-        height: 22px;
+    .scm-logo-mark {{
+        width: 26px;
+        height: 26px;
         background: linear-gradient(135deg, {COLORS['gold']}, {COLORS['gold2']});
         clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+        flex-shrink: 0;
     }}
-    .mobile-logo-text {{
+    @media (min-width: 768px) {{
+        .scm-logo-mark {{ width: 30px; height: 30px; }}
+    }}
+    .scm-logo-text {{
         font-family: {FONT_DISPLAY};
         font-size: 0.72rem;
         font-weight: 600;
         color: {COLORS['text']};
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-    }}
-    .mobile-page-name {{
-        font-family: {FONT_MONO};
-        font-size: 0.6rem;
-        color: {COLORS['text3']};
         letter-spacing: 0.06em;
         text-transform: uppercase;
+        white-space: nowrap;
+    }}
+    @media (min-width: 768px) {{
+        .scm-logo-text {{ font-size: 0.8rem; }}
+    }}
+
+    /* Nav tabs */
+    .scm-tabs {{
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        flex: 1;
+        justify-content: flex-end;
+    }}
+    .scm-tabs::-webkit-scrollbar {{ display: none; }}
+
+    .scm-tab {{
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 0.68rem;
+        font-weight: 500;
+        color: {COLORS['text3']};
+        white-space: nowrap;
+        cursor: pointer;
+        text-decoration: none !important;
+        transition: all 0.15s;
+        font-family: {FONT_SANS};
+        letter-spacing: 0.02em;
+        border: 1px solid transparent;
+        flex-shrink: 0;
+    }}
+    @media (min-width: 768px) {{
+        .scm-tab {{
+            padding: 7px 14px;
+            font-size: 0.75rem;
+            gap: 7px;
+        }}
+    }}
+    .scm-tab:hover {{
+        color: {COLORS['text2']};
+        background: {COLORS['surface2']};
+    }}
+    .scm-tab.active {{
+        color: {COLORS['gold']};
+        background: {COLORS['gold']}12;
+        border-color: {COLORS['gold']}30;
+    }}
+    .scm-tab-icon {{
+        font-size: 0.75rem;
+        line-height: 1;
+    }}
+    @media (min-width: 768px) {{
+        .scm-tab-icon {{ font-size: 0.85rem; }}
+    }}
+    /* Hide label on very small screens */
+    .scm-tab-label {{ display: none; }}
+    @media (min-width: 480px) {{
+        .scm-tab-label {{ display: inline; }}
+    }}
+
+    /* Live indicator */
+    .scm-live {{
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-family: {FONT_MONO};
+        font-size: 0.6rem;
+        color: {COLORS['green']};
+        flex-shrink: 0;
+        padding-left: 0.5rem;
+        border-left: 1px solid {COLORS['border']};
+        display: none;
+    }}
+    @media (min-width: 600px) {{
+        .scm-live {{ display: flex; }}
+    }}
+    .scm-live-dot {{
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: {COLORS['green']};
+        animation: pulse 2s infinite;
     }}
 
     /* ── Logo Area ────────────────────────────────────── */
@@ -888,17 +941,11 @@ def render_logo():
     """, unsafe_allow_html=True)
 
 def render_page_header(title, subtitle="", live=True):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    live_html = '<span class="live-dot"></span> LIVE' if live else ""
     st.markdown(f"""
     <div class="page-header">
         <div>
             <div class="page-title">{title}</div>
             <div class="page-subtitle">{subtitle}</div>
-        </div>
-        <div class="page-timestamp">
-            {live_html}<br>
-            {now}
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1567,86 +1614,63 @@ def page_control():
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
+# NAVIGATION CONFIG
+# ============================================================
+PAGES = [
+    {"id": "monitor",    "label": "Monitor",    "icon": "◉", "fn": None},
+    {"id": "analytics",  "label": "Analytics",  "icon": "◈", "fn": None},
+    {"id": "anomalies",  "label": "Anomalies",  "icon": "◎", "fn": None},
+    {"id": "control",    "label": "Control",    "icon": "◐", "fn": None},
+]
+
+# ============================================================
 # MAIN APP
 # ============================================================
-PAGES = ["Simulation Monitor", "Performance Analytics", "Anomaly Detector", "Control Panel"]
-ICONS = ["◉", "◈", "◎", "◐"]
-ICONS_SHORT = ["Monitor", "Analytics", "Anomaly", "Control"]
-
 def main():
     inject_css()
 
-    # ── Session state per page ───────────────────────────
-    if "page" not in st.session_state:
-        st.session_state.page = "Simulation Monitor"
+    # ── Routing via query params ─────────────────────────
+    params   = st.query_params
+    page_id  = params.get("p", "monitor")
+    valid    = [pg["id"] for pg in PAGES]
+    if page_id not in valid:
+        page_id = "monitor"
 
-    # ── Desktop Sidebar ──────────────────────────────────
-    with st.sidebar:
-        render_logo()
-        st.markdown('<div class="nav-section">Navigation</div>', unsafe_allow_html=True)
+    # ── TOP NAVBAR ───────────────────────────────────────
+    tabs_html = ""
+    for pg in PAGES:
+        active = "active" if pg["id"] == page_id else ""
+        tabs_html += f"""
+        <a class="scm-tab {active}" href="?p={pg['id']}">
+            <span class="scm-tab-icon">{pg['icon']}</span>
+            <span class="scm-tab-label">{pg['label']}</span>
+        </a>"""
 
-        page_sidebar = st.radio(
-            "Navigation",
-            PAGES,
-            index=PAGES.index(st.session_state.page),
-            label_visibility="collapsed",
-        )
-        st.session_state.page = page_sidebar
-
-        st.markdown(f"""
-        <div style="padding-top:2.5rem;border-top:1px solid {COLORS['border']};margin-top:3rem">
-            <div style="font-size:0.6rem;color:{COLORS['text3']};letter-spacing:0.05em;line-height:1.8">
-                SUPPLY CHAIN MGMT<br>
-                v1.0.0 · Albania Network<br>
-                15 Stores · 500 Products<br>
-                Scheduler: GitHub Actions
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
-        if st.button("Refresh Data"):
-            st.cache_data.clear()
-            st.rerun()
-
-    # ── Mobile Top Bar ───────────────────────────────────
+    now_str = datetime.now().strftime("%H:%M:%S")
     st.markdown(f"""
-    <div class="mobile-topbar">
-        <div class="mobile-logo">
-            <div class="mobile-logo-mark"></div>
-            <div class="mobile-logo-text">Supply Chain</div>
+    <div class="scm-navbar">
+        <div class="scm-logo">
+            <div class="scm-logo-mark"></div>
+            <span class="scm-logo-text">Supply Chain</span>
         </div>
-        <div class="mobile-page-name">{st.session_state.page.split()[0]}</div>
+        <div class="scm-tabs">
+            {tabs_html}
+        </div>
+        <div class="scm-live">
+            <div class="scm-live-dot"></div>
+            {now_str}
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Mobile Bottom Nav ────────────────────────────────
-    # Uses URL query params to handle mobile navigation
-    params = st.query_params
-    if "p" in params:
-        idx = int(params["p"])
-        if 0 <= idx < len(PAGES):
-            st.session_state.page = PAGES[idx]
-
-    nav_items = "".join([
-        f"""<a class="mobile-nav-item {'active' if PAGES[i]==st.session_state.page else ''}"
-               href="?p={i}" style="text-decoration:none">
-            <span class="mobile-nav-icon" style="color:{'#C9A84C' if PAGES[i]==st.session_state.page else '#4A5568'}">{ICONS[i]}</span>
-            <span class="mobile-nav-label" style="color:{'#C9A84C' if PAGES[i]==st.session_state.page else '#4A5568'}">{ICONS_SHORT[i]}</span>
-        </a>"""
-        for i in range(len(PAGES))
-    ])
-    st.markdown(f'<div class="mobile-nav">{nav_items}</div>', unsafe_allow_html=True)
-
     # ── Router ───────────────────────────────────────────
-    page = st.session_state.page
-    if page == "Simulation Monitor":
+    if page_id == "monitor":
         page_monitor()
-    elif page == "Performance Analytics":
+    elif page_id == "analytics":
         page_analytics()
-    elif page == "Anomaly Detector":
+    elif page_id == "anomalies":
         page_anomalies()
-    elif page == "Control Panel":
+    elif page_id == "control":
         page_control()
 
 if __name__ == "__main__":
