@@ -25,7 +25,7 @@ st.set_page_config(
     page_title="Supply Chain Intelligence",
     page_icon="◈",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 # ============================================================
@@ -70,47 +70,28 @@ def inject_css():
         background: {COLORS['bg']};
         font-family: {FONT_SANS};
     }}
-    .main .block-container {{
-        padding: 1rem 1rem 1.5rem;
-        max-width: 100%;
-    }}
-    @media (min-width: 768px) {{
-        .main .block-container {{
-            padding: 1.5rem 2rem 2rem;
-        }}
-    }}
-    
+
     /* ── Hide Streamlit Branding ──────────────────────── */
     #MainMenu, footer, header {{ visibility: hidden; }}
     .stDeployButton {{ display: none; }}
 
-    /* ── Sidebar ──────────────────────────────────────── */
-    [data-testid="stSidebar"] {{
-        background: {COLORS['surface']} !important;
-        border-right: 1px solid {COLORS['border']} !important;
-    }}
-    [data-testid="stSidebar"] .block-container {{
-        padding: 1.5rem 1rem !important;
-    }}
-    [data-testid="stSidebar"] .stRadio > div {{
-        gap: 2px !important;
-    }}
-    [data-testid="stSidebar"] .stRadio label {{
-        background: transparent !important;
-        border-radius: 6px !important;
-        padding: 0.5rem 0.75rem !important;
-        font-size: 0.8rem !important;
-        color: {COLORS['text3']} !important;
-        cursor: pointer !important;
-        transition: all 0.15s !important;
-        width: 100% !important;
-    }}
-    [data-testid="stSidebar"] .stRadio label:hover {{
-        background: {COLORS['surface2']} !important;
-        color: {COLORS['text2']} !important;
-    }}
-    [data-testid="stSidebar"] .stRadio label[data-baseweb="radio"] span:first-child {{
+    /* ── Hide sidebar completely ──────────────────────── */
+    [data-testid="stSidebar"],
+    [data-testid="collapsedControl"],
+    section[data-testid="stSidebar"],
+    div[data-testid="stSidebarCollapsedControl"] {{
         display: none !important;
+        width: 0 !important;
+        visibility: hidden !important;
+    }}
+    .main .block-container {{
+        padding: 0 1rem 1.5rem !important;
+        max-width: 100% !important;
+    }}
+    @media (min-width: 768px) {{
+        .main .block-container {{
+            padding: 0 2rem 2rem !important;
+        }}
     }}
 
     /* ── TOP NAVBAR ───────────────────────────────────── */
@@ -118,7 +99,6 @@ def inject_css():
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0 0 0 0;
         height: 54px;
         background: {COLORS['surface']};
         border-bottom: 1px solid {COLORS['border']};
@@ -136,8 +116,6 @@ def inject_css():
             height: 56px;
         }}
     }}
-
-    /* Logo group */
     .scm-logo {{
         display: flex;
         align-items: center;
@@ -166,8 +144,6 @@ def inject_css():
     @media (min-width: 768px) {{
         .scm-logo-text {{ font-size: 0.8rem; }}
     }}
-
-    /* Nav tabs */
     .scm-tabs {{
         display: flex;
         align-items: center;
@@ -179,11 +155,10 @@ def inject_css():
         justify-content: flex-end;
     }}
     .scm-tabs::-webkit-scrollbar {{ display: none; }}
-
     .scm-tab {{
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 5px;
         padding: 6px 10px;
         border-radius: 6px;
         font-size: 0.68rem;
@@ -197,13 +172,10 @@ def inject_css():
         letter-spacing: 0.02em;
         border: 1px solid transparent;
         flex-shrink: 0;
+        -webkit-tap-highlight-color: transparent;
     }}
     @media (min-width: 768px) {{
-        .scm-tab {{
-            padding: 7px 14px;
-            font-size: 0.75rem;
-            gap: 7px;
-        }}
+        .scm-tab {{ padding: 7px 14px; font-size: 0.75rem; }}
     }}
     .scm-tab:hover {{
         color: {COLORS['text2']};
@@ -214,31 +186,21 @@ def inject_css():
         background: {COLORS['gold']}12;
         border-color: {COLORS['gold']}30;
     }}
-    .scm-tab-icon {{
-        font-size: 0.75rem;
-        line-height: 1;
-    }}
-    @media (min-width: 768px) {{
-        .scm-tab-icon {{ font-size: 0.85rem; }}
-    }}
-    /* Hide label on very small screens */
+    .scm-tab-icon {{ font-size: 0.8rem; line-height: 1; }}
     .scm-tab-label {{ display: none; }}
-    @media (min-width: 480px) {{
+    @media (min-width: 440px) {{
         .scm-tab-label {{ display: inline; }}
     }}
-
-    /* Live indicator */
     .scm-live {{
-        display: flex;
+        display: none;
         align-items: center;
         gap: 5px;
         font-family: {FONT_MONO};
         font-size: 0.6rem;
         color: {COLORS['green']};
         flex-shrink: 0;
-        padding-left: 0.5rem;
+        padding-left: 0.75rem;
         border-left: 1px solid {COLORS['border']};
-        display: none;
     }}
     @media (min-width: 600px) {{
         .scm-live {{ display: flex; }}
@@ -951,11 +913,17 @@ def render_logo():
     """, unsafe_allow_html=True)
 
 def render_page_header(title, subtitle="", live=True):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    live_html = '<span class="live-dot"></span> LIVE' if live else ""
     st.markdown(f"""
     <div class="page-header">
         <div>
             <div class="page-title">{title}</div>
             <div class="page-subtitle">{subtitle}</div>
+        </div>
+        <div class="page-timestamp">
+            {live_html}<br>
+            {now}
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1150,48 +1118,61 @@ def page_monitor():
         </div>""" for r in rows2])
         st.markdown(f'<div class="chart-card">{rows_html2}</div>', unsafe_allow_html=True)
 
-    # ── Transactions per hour (last 24h) ──────────────────
-    render_section("Vëllimi i Transaksioneve — 24 orët e fundit")
+    # ── Transactions per hour — nga sales_hourly (historik real) ──
+    render_section("Vëllimi i Transaksioneve — 48 orët e fundit")
 
-    if not df_txn.empty:
-        df_txn["timestamp"] = pd.to_datetime(df_txn["timestamp"])
-        df_txn["hour"] = df_txn["timestamp"].dt.floor("h")
-        hourly = df_txn.groupby("hour").agg(
-            transactions=("total","count"),
-            revenue=("total","sum")
-        ).reset_index().tail(24)
+    df_sh = fetch_sales_hourly(5000)
+    if not df_sh.empty:
+        try:
+            df_sh["date"] = pd.to_datetime(df_sh["date"])
+            # Krijo datetime = date + hour
+            df_sh["dt"] = df_sh.apply(
+                lambda r: r["date"].replace(hour=int(r["hour"])), axis=1
+            )
+            # Grupo sipas dt — agregoj të gjitha store-et dhe produktet
+            hourly = df_sh.groupby("dt").agg(
+                transactions=("transactions", "sum"),
+                revenue=("revenue", "sum"),
+            ).reset_index().sort_values("dt").tail(48)
 
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
-        fig.add_trace(go.Bar(
-            x=hourly["hour"], y=hourly["transactions"],
-            name="Transaksione",
-            marker_color="rgba(201,168,76,0.38)",
-            marker_line_color=COLORS['gold'],
-            marker_line_width=1,
-            hovertemplate="<b>%{y:,}</b> transaksione<extra></extra>",
-        ), secondary_y=False)
-        fig.add_trace(go.Scatter(
-            x=hourly["hour"], y=hourly["revenue"],
-            name="Revenue (L)",
-            mode="lines",
-            line=dict(color=COLORS['green'], width=2),
-            hovertemplate="<b>%{y:,.0f}</b> L<extra></extra>",
-        ), secondary_y=True)
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            fig.add_trace(go.Bar(
+                x=hourly["dt"],
+                y=hourly["transactions"],
+                name="Transaksione",
+                marker_color="rgba(201,168,76,0.38)",
+                marker_line_color=COLORS['gold'],
+                marker_line_width=1,
+                hovertemplate="<b>%{y:,}</b> transaksione<br>%{x|%d %b %H:%M}<extra></extra>",
+            ), secondary_y=False)
+            fig.add_trace(go.Scatter(
+                x=hourly["dt"],
+                y=hourly["revenue"],
+                name="Revenue (L)",
+                mode="lines",
+                line=dict(color=COLORS['green'], width=2),
+                fill="tozeroy",
+                fillcolor="rgba(0,200,150,0.04)",
+                hovertemplate="<b>%{y:,.0f}</b> L<extra></extra>",
+            ), secondary_y=True)
 
-        layout = plotly_layout(height=280)
-        layout["yaxis"]["title"] = dict(text="Transaksione", font=dict(size=9))
-        layout["yaxis2"] = dict(
-            gridcolor="rgba(0,0,0,0)",
-            tickfont=dict(size=9, family=FONT_MONO, color=COLORS['text3']),
-            zeroline=False,
-        )
-        fig.update_layout(**layout)
+            layout = plotly_layout(height=280)
+            layout["yaxis"]["title"] = dict(text="Transaksione", font=dict(size=9))
+            layout["yaxis2"] = dict(
+                gridcolor="rgba(0,0,0,0)",
+                tickfont=dict(size=9, family=FONT_MONO, color=COLORS['text3']),
+                zeroline=False,
+            )
+            layout["xaxis"]["tickformat"] = "%d %b\n%H:%M"
+            fig.update_layout(**layout)
 
-        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            st.markdown('</div>', unsafe_allow_html=True)
+        except Exception as e:
+            st.markdown(f'<div class="chart-card"><p style="color:#4A5568;font-size:0.8rem;text-align:center;padding:2rem">Chart error: {e}</p></div>', unsafe_allow_html=True)
     else:
-        st.markdown('<div class="chart-card"><p style="color:#4A5568;font-size:0.8rem;text-align:center;padding:2rem">Nuk ka të dhëna akoma</p></div>', unsafe_allow_html=True)
+        st.markdown('<div class="chart-card"><p style="color:#4A5568;font-size:0.8rem;text-align:center;padding:2rem">Nuk ka të dhëna akoma — prit scheduler</p></div>', unsafe_allow_html=True)
 
 # ============================================================
 # PAGE 2 — PERFORMANCE ANALYTICS
@@ -1233,28 +1214,30 @@ def page_analytics():
     col1, col2 = st.columns([3, 2])
 
     with col1:
-        store_rev = df_txn.groupby("store_id")["total"].sum().reset_index()
-        store_rev = store_rev.sort_values("total", ascending=True).tail(15)
+        # Lexo sales_hourly për revenue të plotë sipas store
+        df_store_src = fetch_sales_hourly(10000)
+        if not df_store_src.empty:
+            store_rev = df_store_src.groupby("store_id")["revenue"].sum().reset_index()
+        else:
+            store_rev = df_txn.groupby("store_id")["total"].sum().reset_index()
+            store_rev.columns = ["store_id", "revenue"]
+        store_rev = store_rev.sort_values("revenue", ascending=True)
 
-        # Ndërto ngjyrat manualisht — colorscale + color=array
-        # shkakton ValueError në disa versione Plotly
-        max_rev = store_rev["total"].max() if not store_rev.empty else 1
+        # Ndërto ngjyrat manualisht
+        max_rev = store_rev["revenue"].max() if not store_rev.empty else 1
         bar_colors = [
             COLORS['gold'] if v == max_rev
             else ("rgba(201,168,76,0.56)" if v > max_rev * 0.7
             else ("rgba(201,168,76,0.38)" if v > max_rev * 0.4
             else COLORS['surface2']))
-            for v in store_rev["total"]
+            for v in store_rev["revenue"]
         ]
 
         fig = go.Figure(go.Bar(
-            x=store_rev["total"],
+            x=store_rev["revenue"],
             y=store_rev["store_id"],
             orientation="h",
-            marker=dict(
-                color=bar_colors,
-                line_width=0,
-            ),
+            marker=dict(color=bar_colors, line_width=0),
             hovertemplate="<b>%{y}</b><br>Revenue: %{x:,.0f} L<extra></extra>",
         ))
         layout = plotly_layout(height=340, showlegend=False)
@@ -1303,43 +1286,62 @@ def page_analytics():
     # ── Hourly Pattern (Poisson validation) ──────────────
     render_section("Profili Ditor — Validim Poisson")
 
-    hourly_avg = df_txn.groupby("hour")["total"].agg(["count","mean","sum"]).reset_index()
-    hourly_avg.columns = ["hour","transactions","avg_basket","revenue"]
+    # Lexo sales_hourly dhe grupo sipas orës (mesatare mbi të gjitha ditët)
+    df_sh_all = fetch_sales_hourly(10000)
+    if not df_sh_all.empty:
+        try:
+            # Grupo sipas orës — mesatare e transaksioneve dhe revenue
+            hourly_avg = df_sh_all.groupby("hour").agg(
+                transactions=("transactions", "mean"),
+                avg_basket=("avg_basket", "mean"),
+                revenue=("revenue", "mean"),
+            ).reset_index().sort_values("hour")
 
-    fig3 = go.Figure()
-    fig3.add_trace(go.Scatter(
-        x=hourly_avg["hour"], y=hourly_avg["transactions"],
-        name="Transaksione/orë",
-        mode="lines+markers",
-        line=dict(color=COLORS['gold'], width=2.5),
-        marker=dict(size=6, color=COLORS['gold'], line=dict(color=COLORS['bg'], width=2)),
-        fill="tozeroy",
-        fillcolor="rgba(201,168,76,0.05)",
-        hovertemplate="Ora %{x}:00 — <b>%{y:,}</b> transaksione<extra></extra>",
-    ))
-    fig3.add_trace(go.Scatter(
-        x=hourly_avg["hour"], y=hourly_avg["avg_basket"],
-        name="Avg Basket (L)",
-        mode="lines",
-        line=dict(color=COLORS['blue'], width=1.5, dash="dot"),
-        yaxis="y2",
-        hovertemplate="Avg Basket: <b>%{y:,.0f}</b> L<extra></extra>",
-    ))
+            # Mbush orët që mungojnë me 0
+            all_hours = pd.DataFrame({"hour": range(6, 23)})
+            hourly_avg = all_hours.merge(hourly_avg, on="hour", how="left").fillna(0)
 
-    layout3 = plotly_layout(height=300, showlegend=True)
-    layout3["xaxis"]["tickvals"] = list(range(6, 23))
-    layout3["xaxis"]["ticktext"] = [f"{h:02d}h" for h in range(6, 23)]
-    layout3["yaxis2"] = dict(
-        overlaying="y", side="right",
-        gridcolor="rgba(0,0,0,0)",
-        tickfont=dict(size=9, family=FONT_MONO, color=COLORS['text3']),
-        zeroline=False,
-    )
-    fig3.update_layout(**layout3)
+            fig3 = go.Figure()
+            fig3.add_trace(go.Scatter(
+                x=hourly_avg["hour"],
+                y=hourly_avg["transactions"],
+                name="Transaksione/orë (avg)",
+                mode="lines+markers",
+                line=dict(color=COLORS['gold'], width=2.5),
+                marker=dict(size=7, color=COLORS['gold'],
+                            line=dict(color=COLORS['bg'], width=2)),
+                fill="tozeroy",
+                fillcolor="rgba(201,168,76,0.06)",
+                hovertemplate="Ora %{x}:00 — <b>%{y:,.0f}</b> txn avg<extra></extra>",
+            ))
+            fig3.add_trace(go.Scatter(
+                x=hourly_avg["hour"],
+                y=hourly_avg["avg_basket"],
+                name="Avg Basket (L)",
+                mode="lines",
+                line=dict(color=COLORS['blue'], width=1.5, dash="dot"),
+                yaxis="y2",
+                hovertemplate="Avg Basket: <b>%{y:,.0f}</b> L<extra></extra>",
+            ))
 
-    st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-    st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
-    st.markdown('</div>', unsafe_allow_html=True)
+            layout3 = plotly_layout(height=300, showlegend=True)
+            layout3["xaxis"]["tickvals"]  = list(range(6, 23))
+            layout3["xaxis"]["ticktext"]  = [f"{h:02d}h" for h in range(6, 23)]
+            layout3["yaxis2"] = dict(
+                overlaying="y", side="right",
+                gridcolor="rgba(0,0,0,0)",
+                tickfont=dict(size=9, family=FONT_MONO, color=COLORS['text3']),
+                zeroline=False,
+            )
+            fig3.update_layout(**layout3)
+
+            st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+            st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
+            st.markdown('</div>', unsafe_allow_html=True)
+        except Exception as e:
+            st.markdown(f'<div class="chart-card"><p style="color:#4A5568;font-size:0.8rem">Poisson chart error: {e}</p></div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="chart-card"><p style="color:#4A5568;font-size:0.8rem;text-align:center;padding:2rem">Nuk ka të dhëna orare akoma</p></div>', unsafe_allow_html=True)
 
     # ── Customer Type & Basket Distribution ──────────────
     render_section("Shpërndarja e Shportës")
@@ -1365,36 +1367,49 @@ def page_analytics():
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col4:
-        daily_rev = df_txn.groupby("date")["total"].sum().reset_index().sort_values("date").tail(14)
+        # Lexo sales_hourly dhe grupo sipas datës — histori e plotë
+        df_daily_rev = fetch_sales_hourly(10000)
+        if not df_daily_rev.empty:
+            try:
+                daily_rev = df_daily_rev.groupby("date")["revenue"].sum().reset_index()
+                daily_rev = daily_rev.sort_values("date").tail(14)
+                daily_rev["date"] = daily_rev["date"].astype(str)
 
-        if len(daily_rev) >= 2:
-            trend = np.polyfit(range(len(daily_rev)), daily_rev["total"], 1)
-            trend_line = np.polyval(trend, range(len(daily_rev)))
+                if len(daily_rev) >= 2:
+                    trend      = np.polyfit(range(len(daily_rev)), daily_rev["revenue"], 1)
+                    trend_line = np.polyval(trend, range(len(daily_rev)))
 
-            fig5 = go.Figure()
-            fig5.add_trace(go.Bar(
-                x=daily_rev["date"].astype(str), y=daily_rev["total"],
-                marker_color="rgba(74,158,255,0.31)",
-                marker_line_color=COLORS['blue'],
-                marker_line_width=0.5,
-                name="Revenue/ditë",
-                hovertemplate="<b>%{y:,.0f}</b> L<extra></extra>",
-            ))
-            fig5.add_trace(go.Scatter(
-                x=daily_rev["date"].astype(str), y=trend_line,
-                mode="lines",
-                line=dict(color=COLORS['gold'], width=2, dash="dot"),
-                name="Trend",
-                hovertemplate="Trend: <b>%{y:,.0f}</b> L<extra></extra>",
-            ))
-            layout5 = plotly_layout("Revenue Ditor + Trend", height=260)
-            layout5["xaxis"]["tickangle"] = -30
-            layout5["xaxis"]["tickfont"]["size"] = 8
-            layout5["yaxis"]["tickformat"] = ",.0f"
-            fig5.update_layout(**layout5)
-            st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-            st.plotly_chart(fig5, use_container_width=True, config={"displayModeBar": False})
-            st.markdown('</div>', unsafe_allow_html=True)
+                    fig5 = go.Figure()
+                    fig5.add_trace(go.Bar(
+                        x=daily_rev["date"], y=daily_rev["revenue"],
+                        marker_color="rgba(74,158,255,0.31)",
+                        marker_line_color=COLORS['blue'],
+                        marker_line_width=0.5,
+                        name="Revenue/ditë",
+                        hovertemplate="<b>%{y:,.0f}</b> L<br>%{x}<extra></extra>",
+                    ))
+                    fig5.add_trace(go.Scatter(
+                        x=daily_rev["date"], y=trend_line,
+                        mode="lines",
+                        line=dict(color=COLORS['gold'], width=2, dash="dot"),
+                        name="Trend",
+                        hovertemplate="Trend: <b>%{y:,.0f}</b> L<extra></extra>",
+                    ))
+                    layout5 = plotly_layout("Revenue Ditor + Trend", height=260)
+                    layout5["xaxis"]["tickangle"]       = -30
+                    layout5["xaxis"]["tickfont"]["size"] = 8
+                    layout5["yaxis"]["tickformat"]       = ",.0f"
+                    fig5.update_layout(**layout5)
+
+                    st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+                    st.plotly_chart(fig5, use_container_width=True, config={"displayModeBar": False})
+                    st.markdown('</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown('<div class="chart-card"><p style="color:#4A5568;font-size:0.8rem;text-align:center;padding:2rem">Nevojiten min. 2 ditë</p></div>', unsafe_allow_html=True)
+            except Exception as e:
+                st.markdown(f'<div class="chart-card"><p style="color:#4A5568;font-size:0.8rem">Daily chart error: {e}</p></div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="chart-card"><p style="color:#4A5568;font-size:0.8rem;text-align:center;padding:2rem">Nuk ka të dhëna akoma</p></div>', unsafe_allow_html=True)
 # ============================================================
 # PAGE 3 — ANOMALY DETECTOR
 # ============================================================
@@ -1627,10 +1642,10 @@ def page_control():
 # NAVIGATION CONFIG
 # ============================================================
 PAGES = [
-    {"id": "monitor",    "label": "Monitor",    "icon": "◉", "fn": None},
-    {"id": "analytics",  "label": "Analytics",  "icon": "◈", "fn": None},
-    {"id": "anomalies",  "label": "Anomalies",  "icon": "◎", "fn": None},
-    {"id": "control",    "label": "Control",    "icon": "◐", "fn": None},
+    {"id": "monitor",   "label": "Monitor",   "icon": "◉"},
+    {"id": "analytics", "label": "Analytics", "icon": "◈"},
+    {"id": "anomalies", "label": "Anomalies", "icon": "◎"},
+    {"id": "control",   "label": "Control",   "icon": "◐"},
 ]
 
 # ============================================================
@@ -1639,39 +1654,46 @@ PAGES = [
 def main():
     inject_css()
 
-    with st.sidebar:
-        render_logo()
+    # ── Routing via query params ─────────────────────────
+    params  = st.query_params
+    page_id = params.get("p", "monitor")
+    valid   = [pg["id"] for pg in PAGES]
+    if page_id not in valid:
+        page_id = "monitor"
 
-        st.markdown('<div class="nav-section">Navigation</div>', unsafe_allow_html=True)
+    # ── TOP NAVBAR ───────────────────────────────────────
+    now_str   = datetime.now().strftime("%H:%M:%S")
+    tabs_html = "".join([
+        f'<a class="scm-tab {"active" if pg["id"]==page_id else ""}" href="?p={pg["id"]}">'
+        f'<span class="scm-tab-icon">{pg["icon"]}</span>'
+        f'<span class="scm-tab-label">{pg["label"]}</span>'
+        f'</a>'
+        for pg in PAGES
+    ])
 
-        page = st.radio(
-            "nav",
-            ["◉  Monitor", "◈  Analytics", "◎  Anomalies", "◐  Control"],
-            label_visibility="collapsed",
-        )
-
-        st.markdown(f'''
-        <div style="margin-top:3rem;padding-top:1.5rem;
-                    border-top:1px solid {COLORS["border"]}">
-            <div style="font-size:0.65rem;color:{COLORS["text3"]};
-                        letter-spacing:0.06em;line-height:1.8">
-                SUPPLY CHAIN MANAGEMENT<br>
-                v1.0.0 · Albania Network<br>
-                15 Stores · 500 Products<br>
-                Scheduler: GitHub Actions
-            </div>
+    st.markdown(f"""
+    <div class="scm-navbar">
+        <div class="scm-logo">
+            <div class="scm-logo-mark"></div>
+            <span class="scm-logo-text">Supply Chain</span>
         </div>
-        ''', unsafe_allow_html=True)
+        <div class="scm-tabs">{tabs_html}</div>
+        <div class="scm-live">
+            <div class="scm-live-dot"></div>
+            {now_str}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-        if st.button("⟳  Refresh Data", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
-
-    if "Monitor"   in page: page_monitor()
-    elif "Analytics" in page: page_analytics()
-    elif "Anomalies" in page: page_anomalies()
-    elif "Control"   in page: page_control()
-
+    # ── Router ───────────────────────────────────────────
+    if page_id == "monitor":
+        page_monitor()
+    elif page_id == "analytics":
+        page_analytics()
+    elif page_id == "anomalies":
+        page_anomalies()
+    elif page_id == "control":
+        page_control()
 
 if __name__ == "__main__":
     main()
