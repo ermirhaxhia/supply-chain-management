@@ -274,16 +274,18 @@ def generate_transaction(
                 "item_total": item_total
             })
 
-        # ── 5. Discount (Zbritja) ────────────────────────
+        # ── 5. Discount (Zbritja) - RRESHTI 230 ────────────────────────
         discount_pct = 0.0
         promo_id     = None
         promo_active = get_config("promo_active", 0.0)
 
         if promo_active == 1.0:
-            discount_pct = get_config("promo_discount_pct", 0.0)
+            discount_pct = float(get_config("promo_discount_pct", 0.0))
             promo_id     = "PROMO-ACTIVE"
         elif np.random.random() < DISCOUNT_PROBABILITY:
-            discount_pct = float(np.random.randint(*DISCOUNT_RANGE))
+            # Kufizojmë discount-in që të mos kalojë kurrë 20%
+            val = float(np.random.randint(DISCOUNT_RANGE[0], DISCOUNT_RANGE[1]))
+            discount_pct = min(val, 20.0) 
 
         # ── 6. Customer type dhe payment ─────────────────
         customer_type  = np.random.choice(list(CUSTOMER_TYPES.keys()), p=list(CUSTOMER_TYPES.values()))
@@ -292,11 +294,12 @@ def generate_transaction(
         # ── 7. Transaction ID unik ───────────────────────
         transaction_id = f"{TRANSACTION_ID_PREFIX}-{uuid.uuid4().hex[:10].upper()}"
 
-        # ── 8. Ndërto objektin final (TANI KTHEN LISTË) ──
+        # ── 8. Ndërto objektin final ──────────────────────
         transactions_list = []
         for item in basket_items:
-            # Llogarit totalin me zbritje për këtë produkt specifik
-            item_total_discounted = item["item_total"] * (1 - discount_pct / 100)
+            # RREGULLIMI MATEMATIK: Pjesëtimi me 100 brenda kllapave
+            # Kjo parandalon vlerat negative (psh: 1 - 0.20 = 0.80)
+            item_total_discounted = item["item_total"] * (1 - (discount_pct / 100))
             
             transactions_list.append({
                 "transaction_id":  transaction_id,
@@ -304,9 +307,9 @@ def generate_transaction(
                 "product_id":      item["product_id"],
                 "timestamp":       dt.isoformat(),
                 "quantity":        item["quantity"],
-                "unit_price":      item["unit_price"], # Çmimi REAL dhe i saktë!
+                "unit_price":      item["unit_price"],
                 "discount_pct":    round(discount_pct, 2),
-                "total":           round(item_total_discounted, 2),
+                "total":           round(max(0, item_total_discounted), 2),
                 "payment_method":  payment_method,
                 "promotion_id":    promo_id,
                 "customer_type":   customer_type,
