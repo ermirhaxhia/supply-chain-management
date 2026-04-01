@@ -291,28 +291,27 @@ def generate_transaction(
         customer_type  = np.random.choice(list(CUSTOMER_TYPES.keys()), p=list(CUSTOMER_TYPES.values()))
         payment_method = np.random.choice(list(PAYMENT_METHODS.keys()), p=list(PAYMENT_METHODS.values()))
 
-        # ── 7. Transaction ID unik ───────────────────────
-        transaction_id = f"{TRANSACTION_ID_PREFIX}-{uuid.uuid4().hex[:10].upper()}"
+ # ── 7. Transaction ID unik ───────────────────────
+        # 1 ID bazë + suffix unik për çdo produkt
+        base_id = f"{TRANSACTION_ID_PREFIX}-{uuid.uuid4().hex[:8].upper()}"
 
         # ── 8. Ndërto objektin final ──────────────────────
         transactions_list = []
-        for item in basket_items:
-            # RREGULLIMI MATEMATIK: Pjesëtimi me 100 brenda kllapave
-            # Kjo parandalon vlerat negative (psh: 1 - 0.20 = 0.80)
+        for idx, item in enumerate(basket_items):
             item_total_discounted = item["item_total"] * (1 - (discount_pct / 100))
-            
+
             transactions_list.append({
-                "transaction_id":  transaction_id,
-                "store_id":        store["store_id"],
-                "product_id":      item["product_id"],
-                "timestamp":       dt.isoformat(),
-                "quantity":        item["quantity"],
-                "unit_price":      item["unit_price"],
-                "discount_pct":    round(discount_pct, 2),
-                "total":           round(max(0, item_total_discounted), 2),
-                "payment_method":  payment_method,
-                "promotion_id":    promo_id,
-                "customer_type":   customer_type,
+                "transaction_id": f"{base_id}-{idx:02d}",  # ← unik për çdo rresht
+                "store_id":       store["store_id"],
+                "product_id":     item["product_id"],
+                "timestamp":      dt.isoformat(),
+                "quantity":       item["quantity"],
+                "unit_price":     item["unit_price"],
+                "discount_pct":   round(discount_pct, 2),
+                "total":          round(max(0, item_total_discounted), 2),
+                "payment_method": payment_method,
+                "promotion_id":   promo_id,
+                "customer_type":  customer_type,
             })
 
         return transactions_list
