@@ -243,74 +243,77 @@ def generate_transaction(
             logger.debug(f"🚫 Store {store['store_id']}: Stockout total për këtë faturë")
             return None
 
-        # ── 4. Llogarit totalin ──────────────────────────
+# ── 4. Llogarit totalin dhe ruaj produktet e shportës ──
+        basket_items = []
         total = 0.0
+        
         for p in available_products:
             price = float(p.get("unit_price", 100))
-
-            # Qty realist sipas çmimit të produktit
+            
+            # Logjika e sasisë (qty)
             if price < 150:
-                qty = np.random.randint(1, 5)   # produktet e lira → 1-4 copë
+                qty = np.random.randint(1, 5)   
             elif price < 500:
-                qty = np.random.randint(1, 3)   # mesatarë → 1-2 copë
-            elif price < 1500:
-                qty = 1                          # të shtrenjta → 1 copë
+                qty = np.random.randint(1, 3)   
             else:
-                qty = 1                          # shumë të shtrenjta → 1 copë
+                qty = 1                          
 
-            # Basket type ndikon sasinë
             if basket_type == "quick":
                 qty = 1
             elif basket_type == "bulk":
                 qty = np.random.randint(2, 6) if price < 200 else 1
 
-            total += price * qty
+            item_total = price * qty
+            total += item_total
+            
+            # Ruajmë çdo produkt veç e veç në një listë
+            basket_items.append({
+                "product_id": p["product_id"],
+                "unit_price": price,
+                "quantity": qty,
+                "item_total": item_total
+            })
 
-        # ── 5. Discount ──────────────────────────────────
+        # ── 5. Discount (Zbritja) ────────────────────────
         discount_pct = 0.0
         promo_id     = None
         promo_active = get_config("promo_active", 0.0)
 
         if promo_active == 1.0:
-            # Promovim aktiv nga simulation_config
             discount_pct = get_config("promo_discount_pct", 0.0)
             promo_id     = "PROMO-ACTIVE"
         elif np.random.random() < DISCOUNT_PROBABILITY:
-            # Zbritje e rastësishme
             discount_pct = float(np.random.randint(*DISCOUNT_RANGE))
 
-        total_after_discount = total * (1 - discount_pct / 100)
-
         # ── 6. Customer type dhe payment ─────────────────
-        customer_type  = np.random.choice(
-            list(CUSTOMER_TYPES.keys()),
-            p=list(CUSTOMER_TYPES.values())
-        )
-        payment_method = np.random.choice(
-            list(PAYMENT_METHODS.keys()),
-            p=list(PAYMENT_METHODS.values())
-        )
+        customer_type  = np.random.choice(list(CUSTOMER_TYPES.keys()), p=list(CUSTOMER_TYPES.values()))
+        payment_method = np.random.choice(list(PAYMENT_METHODS.keys()), p=list(PAYMENT_METHODS.values()))
 
         # ── 7. Transaction ID unik ───────────────────────
         transaction_id = f"{TRANSACTION_ID_PREFIX}-{uuid.uuid4().hex[:10].upper()}"
 
-        # ── 8. Ndrto objektin final ──────────────────────
-        transaction = {
-            "transaction_id": transaction_id,
-            "store_id":        store["store_id"],
-            "product_id":      available_products[0]["product_id"],
-            "timestamp":       dt.isoformat(),
-            "quantity":        len(available_products),
-            "unit_price":      round(total / len(available_products), 2),
-            "discount_pct":    round(discount_pct, 2),
-            "total":           round(total_after_discount, 2),
-            "payment_method":  payment_method,
-            "promotion_id":    promo_id,
-            "customer_type":   customer_type,
-        }
+        # ── 8. Ndërto objektin final (TANI KTHEN LISTË) ──
+        transactions_list = []
+        for item in basket_items:
+            # Llogarit totalin me zbritje për këtë produkt specifik
+            item_total_discounted = item["item_total"] * (1 - discount_pct / 100)
+            
+            transactions_list.append({
+                "transaction_id":  transaction_id,
+                "store_id":        store["store_id"],
+                "product_id":      item["product_id"],
+                "timestamp":       dt.isoformat(),
+                "quantity":        item["quantity"],
+                "unit_price":      item["unit_price"], # Çmimi REAL dhe i saktë!
+                "discount_pct":    round(discount_pct, 2),
+                "total":           round(item_total_discounted, 2),
+                "payment_method":  payment_method,
+                "promotion_id":    promo_id,
+                "customer_type":   customer_type,
+            })
 
-        return transaction
-
+        return transactions_list
+    
     except Exception as e:
         logger.error(f"❌ ERROR në generate_transaction: {e}")
         return None
@@ -338,9 +341,13 @@ def run_sales_hour(store: dict, products: list, dt: datetime) -> dict:
     for _ in range(num_customers):
         txn = generate_transaction(store, products, dt)
         if txn:
-            transactions.append(txn)
-            total_revenue += txn["total"]
-            # Track basket type stats
+            # 1. Shtojmë të gjitha produktet e kësaj fature në listën kryesore
+            transactions.extend(txn) 
+            
+            # 2. Mbledhim totalin e çdo produkti për të gjetur totalin e faturës
+            total_revenue += sum(item["total"] for item in txn) 
+            
+            # 3. Track basket type stats (Shporta llogaritet si 1 e vetme, pavarësisht sa produkte ka)
             basket_type = get_basket_type(dt)
             basket_type_stats[basket_type] = basket_type_stats.get(basket_type, 0) + 1
         else:
