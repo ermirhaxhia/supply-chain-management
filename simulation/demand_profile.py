@@ -150,7 +150,7 @@ def get_lambda(store: dict, dt: datetime) -> float:
     """
     try:
         # ── 1. Lambda bazë e store-it ──────────────────────
-        lambda_base = store.get("lambda_final", 40.0)
+        lambda_base = store.get("lambda_final", 34.0)
 
         # ── 2. Trend mujor ────────────────────────────────
         trend = MONTHLY_TREND.get(dt.month, 1.0)

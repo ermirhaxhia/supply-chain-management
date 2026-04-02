@@ -243,7 +243,7 @@ def generate_transaction(
             logger.debug(f"🚫 Store {store['store_id']}: Stockout total për këtë faturë")
             return None
 
-# ── 4. Llogarit totalin dhe ruaj produktet e shportës ──
+        # ── 4. Llogarit totalin dhe ruaj produktet e shportës ──
         basket_items = []
         total = 0.0
         
