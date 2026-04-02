@@ -117,8 +117,8 @@ def run_monthly_aggregation(dt: datetime = None):
                 s["transport_cost"] for s in (shp_resp.data or [])
             )
 
-            # COGS (kosto mallrave) — ~60% e revenue
-            total_cogs    = total_revenue * 0.60
+            # COGS (kosto mallrave) — ~74% e revenue
+            total_cogs    = total_revenue * 0.74
             gross_margin  = total_revenue - total_cogs
             margin_pct    = (gross_margin / total_revenue * 100) if total_revenue > 0 else 0
 

@@ -291,7 +291,7 @@ def generate_transaction(
         customer_type  = np.random.choice(list(CUSTOMER_TYPES.keys()), p=list(CUSTOMER_TYPES.values()))
         payment_method = np.random.choice(list(PAYMENT_METHODS.keys()), p=list(PAYMENT_METHODS.values()))
 
- # ── 7. Transaction ID unik ───────────────────────
+        # ── 7. Transaction ID unik ───────────────────────
         # 1 ID bazë + suffix unik për çdo produkt
         base_id = f"{TRANSACTION_ID_PREFIX}-{uuid.uuid4().hex[:8].upper()}"
 
