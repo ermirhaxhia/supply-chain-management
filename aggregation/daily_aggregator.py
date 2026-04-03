@@ -1,13 +1,15 @@
 # ============================================================
 # aggregation/daily_aggregator.py
 # Agregon sales_hourly -> sales_daily
-# FIX: Pagination për të marrë TË GJITHA rreshtat (jo vetëm 1000)
+# FIX 1: Pagination për të marrë TË GJITHA rreshtat (jo vetëm 1000)
+# FIX 2: Timezone Albania (UTC+2) — agregon ditën e djeshme
 # ============================================================
 
 import sys
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+import pytz
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
@@ -18,11 +20,14 @@ from config.settings import supabase
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("daily_aggregator")
 
+# Zona kohore e Shqipërisë
+TZ_ALB = pytz.timezone("Europe/Tirane")
+
 
 def fetch_all_rows(table: str, filters: dict) -> list:
     """
     Merr TË GJITHA rreshtat nga një tabelë duke përdorur pagination.
-    Supabase kthen max 1000 rreshta pa pagination — kjo funksion e rregullon.
+    Supabase kthen max 1000 rreshta pa pagination.
     """
     all_rows = []
     page_size = 1000
@@ -31,7 +36,6 @@ def fetch_all_rows(table: str, filters: dict) -> list:
     while True:
         query = supabase.table(table).select("*")
 
-        # Apliko filtrat
         for key, value in filters.items():
             if isinstance(value, tuple):
                 op, val = value
@@ -44,14 +48,12 @@ def fetch_all_rows(table: str, filters: dict) -> list:
             else:
                 query = query.eq(key, value)
 
-        # Pagination
         resp = query.range(offset, offset + page_size - 1).execute()
         batch = resp.data or []
         all_rows.extend(batch)
 
         logger.info(f"  📄 [{table}] Faqe {offset//page_size + 1}: {len(batch)} rreshta")
 
-        # Nëse morëm më pak se page_size → kemi mbaruar
         if len(batch) < page_size:
             break
 
@@ -63,14 +65,22 @@ def fetch_all_rows(table: str, filters: dict) -> list:
 
 def run_daily_aggregation(dt: datetime = None):
     """
-    Merr të dhënat nga sales_hourly për datën e sotme
-    dhe i agregon në sales_daily (të gjitha 15 dyqanet).
+    LOGJIKA E DATËS:
+      Serveri → UTC. Shqipëria → UTC+2.
+      GitHub Actions thirr --job daily në 00:xx ALB (= 22:xx UTC ditën paraardhëse).
+      Gjithmonë agregojmë DITËN E DJESHME në orën e Shqipërisë.
     """
-    if dt is None:
-        dt = datetime.now()
+    # Ora aktuale në Shqipëri
+    now_alb   = datetime.now(TZ_ALB)
+    # Dita për agregim = e djeshme
+    yesterday = (now_alb - timedelta(days=1)).date()
+    date_str  = yesterday.isoformat()
 
-    date_str = dt.date().isoformat()
-    logger.info(f"📅 Duke nisur agregimin ditor për: {date_str}")
+    logger.info(
+        f"📅 Agregim ditor → {date_str} | "
+        f"Ora ALB: {now_alb.strftime('%d/%m %H:%M')} | "
+        f"UTC: {datetime.utcnow().strftime('%d/%m %H:%M')}"
+    )
 
     try:
         # ── 1. Lexo TË GJITHA rreshtat nga sales_hourly ──────────────
@@ -80,9 +90,8 @@ def run_daily_aggregation(dt: datetime = None):
             logger.warning(f"⚠️ Nuk u gjetën të dhëna në sales_hourly për {date_str}")
             return
 
-        # Verifikimi i store-ve të gjetura
         stores_found = set(r["store_id"] for r in hourly_data)
-        logger.info(f"🏪 Store-t e gjetura: {sorted(stores_found)}")
+        logger.info(f"🏪 Store-t e gjetura ({len(stores_found)}): {sorted(stores_found)}")
 
         # ── 2. Grupimi (Store × Product) ─────────────────────────────
         summary = {}
@@ -90,13 +99,9 @@ def run_daily_aggregation(dt: datetime = None):
             key = (row["store_id"], row["product_id"])
             if key not in summary:
                 summary[key] = {
-                    "units_sold":         0,
-                    "revenue":            0.0,
-                    "cogs":               0.0,
-                    "gross_profit":       0.0,
-                    "net_revenue":        0.0,
-                    "discount_amount":    0.0,
-                    "transactions_count": 0
+                    "units_sold": 0, "revenue": 0.0, "cogs": 0.0,
+                    "gross_profit": 0.0, "net_revenue": 0.0,
+                    "discount_amount": 0.0, "transactions_count": 0
                 }
             s = summary[key]
             s["units_sold"]         += row.get("units_sold", 0)
@@ -125,13 +130,13 @@ def run_daily_aggregation(dt: datetime = None):
                 "transactions_count": v["transactions_count"]
             })
 
-        # ── 4. Kontrollo nëse sot është agreguar tashmë ───────────────
+        # ── 4. Kontrollo duplicate ────────────────────────────────────
         existing = supabase.table("sales_daily").select("id").eq("date", date_str).limit(1).execute()
         if existing.data:
             logger.warning(f"⚠️ sales_daily për {date_str} ekziston — duke fshirë dhe rindërtuar...")
             supabase.table("sales_daily").delete().eq("date", date_str).execute()
 
-        # ── 5. INSERT në grupe (batch) ────────────────────────────────
+        # ── 5. INSERT në batch ────────────────────────────────────────
         batch_size = 500
         total_inserted = 0
         for i in range(0, len(daily_rows), batch_size):
@@ -142,7 +147,7 @@ def run_daily_aggregation(dt: datetime = None):
 
         logger.info(f"✅ sales_daily kompletuar: {total_inserted} rreshta për {len(stores_found)} dyqane")
 
-        # ── 6. Pastro sales_hourly pas agregimit ──────────────────────
+        # ── 6. Pastro sales_hourly ────────────────────────────────────
         supabase.table("sales_hourly").delete().eq("date", date_str).execute()
         logger.info(f"🧹 sales_hourly pastruar për {date_str}")
 
