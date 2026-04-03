@@ -1,0 +1,33 @@
+name: 📆 3. Monthly KPI (Dita 1)
+
+on:
+  schedule:
+    # Ekzekutohet në datën 1 të çdo muaji në orën 00:30 (Koha Tiranës -> 22:30 UTC e ditës së fundit të muajit paraprak, ose fiks 00:30 UTC)
+    # Për siguri po e lëmë në 01:00 UTC (03:00 Tiranë) në datën 1
+    - cron: "0 1 1 * *"
+  workflow_dispatch:
+
+jobs:
+  run-monthly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Setup Python
+        uses: actions/setup-python@v5.4.0
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Monthly Aggregation
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        # Këtu thërrasim komandën specifike për mbylljen e muajit
+        run: python scheduler/scheduler.py --job monthly

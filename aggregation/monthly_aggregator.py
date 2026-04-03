@@ -20,15 +20,15 @@ logger = logging.getLogger("monthly_aggregator")
 
 def run_monthly_aggregation(dt: datetime = None):
     """
-    Agregon të dhënat e muajit të kaluar në:
-    - sales_monthly
-    - kpi_monthly
-    Ekzekutohet ditën 1 të çdo muaji ora 00:00.
+    Agregon të dhënat e muajit të kaluar në sales_monthly dhe kpi_monthly.
     """
+    
+    # ============================================================
+    # PJESA 1: PËRGATITJA E DATAVE (Gjetja e muajit të kaluar)
+    # ============================================================
     if dt is None:
         dt = datetime.now()
 
-    # Muaji i kaluar
     if dt.month == 1:
         year, month = dt.year - 1, 12
     else:
@@ -37,10 +37,15 @@ def run_monthly_aggregation(dt: datetime = None):
     month_start = f"{year}-{month:02d}-01"
     month_end   = f"{year}-{month:02d}-31"
 
-    logger.info(f"📆 Monthly Aggregation | {year}-{month:02d}")
+    logger.info(f"📆 Monthly Aggregation Filloi | Muaji: {year}-{month:02d}")
+    monthly_rows = []
+    kpi_rows = []
 
+    # ============================================================
+    # PJESA 2: AGREGIMI I SHITJEVE MUJORE (sales_daily -> sales_monthly)
+    # ============================================================
     try:
-        # ── SALES MONTHLY ─────────────────────────────────
+        # --- Hapi 2.1: Leximi i të dhënave ditore të muajit ---
         daily_resp = (
             supabase.table("sales_daily")
             .select("*")
@@ -50,49 +55,72 @@ def run_monthly_aggregation(dt: datetime = None):
         )
         daily_data = daily_resp.data or []
 
+        # --- Hapi 2.2: Grupimi sipas Produktit dhe Dyqanit ---
         groups: dict = {}
         for row in daily_data:
             key = (row["store_id"], row["product_id"])
             if key not in groups:
                 groups[key] = {
-                    "transactions":  0,
-                    "units_sold":    0,
-                    "revenue":       0.0,
-                    "discount_total":0.0,
-                    "stockout_days": 0,
+                    "units_sold": 0, "revenue": 0.0, "discount_amount": 0.0,
+                    "net_revenue": 0.0, "cogs": 0.0, "gross_profit": 0.0,
+                    "transactions_count": 0
                 }
-            groups[key]["transactions"]  += row["transactions"]
-            groups[key]["units_sold"]    += row["units_sold"]
-            groups[key]["revenue"]       += row["revenue"]
-            groups[key]["discount_total"]+= row["discount_total"]
-            if row.get("stockout_flag"):
-                groups[key]["stockout_days"] += 1
+            groups[key]["units_sold"]         += row["units_sold"]
+            groups[key]["revenue"]            += row["revenue"]
+            groups[key]["discount_amount"]    += row["discount_amount"]
+            groups[key]["net_revenue"]        += row["net_revenue"]
+            groups[key]["cogs"]               += row["cogs"]
+            groups[key]["gross_profit"]       += row["gross_profit"]
+            groups[key]["transactions_count"] += row["transactions_count"]
 
-        monthly_rows = []
+        # --- Hapi 2.3: Përgatitja e listës dhe Insertimi ---
         for (store_id, product_id), vals in groups.items():
-            txn = vals["transactions"]
+            units = vals["units_sold"]
+            avg_price = vals["revenue"] / units if units > 0 else 0
+            
             monthly_rows.append({
-                "store_id":      store_id,
-                "product_id":    product_id,
-                "year":          year,
-                "month":         month,
-                "transactions":  txn,
-                "units_sold":    vals["units_sold"],
-                "revenue":       round(vals["revenue"], 2),
-                "avg_basket":    round(vals["revenue"] / txn, 2) if txn > 0 else 0,
-                "discount_total":round(vals["discount_total"], 2),
-                "stockout_days": vals["stockout_days"],
+                "store_id":           store_id,
+                "product_id":         product_id,
+                "year":               year,
+                "month":              month,
+                "units_sold":         units,
+                "avg_unit_price":     round(avg_price, 2),
+                "revenue":            round(vals["revenue"], 2),
+                "discount_amount":    round(vals["discount_amount"], 2),
+                "net_revenue":        round(vals["net_revenue"], 2),
+                "cogs":               round(vals["cogs"], 2),
+                "gross_profit":       round(vals["gross_profit"], 2),
+                "transactions_count": vals["transactions_count"]
             })
 
         if monthly_rows:
             supabase.table("sales_monthly").insert(monthly_rows).execute()
-            logger.info(f"✅ Sales Monthly: {len(monthly_rows)} grupe")
+            logger.info(f"✅ PJESA 2: U agreguan {len(monthly_rows)} produkte në sales_monthly")
+        else:
+            logger.warning("⚠️ PJESA 2: Nuk u gjetën të dhëna ditore për këtë muaj.")
 
-        # ── KPI MONTHLY ───────────────────────────────────
+    except Exception as e:
+        logger.error(f"❌ ERROR NË PJESËN 2 (Shitjet Mujore): {e}")
+
+
+    # ============================================================
+    # PJESA 3: KPI DHE TREGUESIT FINANCIARË (kpi_monthly)
+    # ============================================================
+    try:
+        # --- Hapi 3.1: Gjetja e dyqaneve dhe Transportit ---
         stores_resp = supabase.table("stores").select("store_id").execute()
         stores      = stores_resp.data or []
 
-        kpi_rows = []
+        shp_resp = (
+            supabase.table("shipments")
+            .select("transport_cost")
+            .gte("departure_time", f"{month_start}T00:00:00")
+            .lte("departure_time", f"{month_end}T23:59:59")
+            .execute()
+        )
+        transport_cost = sum(s["transport_cost"] for s in (shp_resp.data or []))
+
+        # --- Hapi 3.2: Llogaritja e Financave për çdo Dyqan ---
         for store in stores:
             store_id    = store["store_id"]
             store_data  = [r for r in monthly_rows if r["store_id"] == store_id]
@@ -101,59 +129,39 @@ def run_monthly_aggregation(dt: datetime = None):
                 continue
 
             total_revenue      = sum(r["revenue"] for r in store_data)
-            total_transactions = sum(r["transactions"] for r in store_data)
-            total_units        = sum(r["units_sold"] for r in store_data)
-            avg_basket         = total_revenue / total_transactions if total_transactions > 0 else 0
-
-            # Transport kosto nga shipments
-            shp_resp = (
-                supabase.table("shipments")
-                .select("transport_cost")
-                .gte("departure_time", f"{month_start}T00:00:00")
-                .lte("departure_time", f"{month_end}T23:59:59")
-                .execute()
-            )
-            transport_cost = sum(
-                s["transport_cost"] for s in (shp_resp.data or [])
-            )
-
-            # COGS (kosto mallrave) — ~74% e revenue
-            total_cogs    = total_revenue * 0.74
-            gross_margin  = total_revenue - total_cogs
-            margin_pct    = (gross_margin / total_revenue * 100) if total_revenue > 0 else 0
-
-            # Stockout rate
-            total_days    = sum(r["stockout_days"] for r in store_data)
-            stockout_rate = (total_days / (len(store_data) * 30) * 100) if store_data else 0
+            total_net_revenue  = sum(r["net_revenue"] for r in store_data)
+            total_cogs         = sum(r["cogs"] for r in store_data)
+            gross_margin       = sum(r["gross_profit"] for r in store_data)
+            
+            total_transactions = sum(r["transactions_count"] for r in store_data)
+            avg_basket         = total_net_revenue / total_transactions if total_transactions > 0 else 0
+            margin_pct         = (gross_margin / total_net_revenue * 100) if total_net_revenue > 0 else 0
 
             kpi_rows.append({
                 "store_id":          store_id,
                 "year":              year,
                 "month":             month,
-                "total_revenue":     round(total_revenue, 2),
+                "total_revenue":     round(total_net_revenue, 2),
                 "total_cogs":        round(total_cogs, 2),
                 "gross_margin":      round(gross_margin, 2),
                 "gross_margin_pct":  round(margin_pct, 2),
                 "total_transactions":total_transactions,
                 "avg_basket_value":  round(avg_basket, 2),
-                "stockout_rate_pct": round(stockout_rate, 2),
-                "otd_pct":           88.0,
-                "avg_lead_time_days":2.5,
                 "transport_cost":    round(transport_cost, 2),
                 "inventory_cost":    round(total_cogs * 0.02, 2),
                 "total_cost":        round(total_cogs + transport_cost, 2),
-                "net_profit":        round(gross_margin - transport_cost, 2),
+                "net_profit":        round(gross_margin - transport_cost - (total_cogs * 0.02), 2),
             })
 
+        # --- Hapi 3.3: Insertimi i KPI-ve ---
         if kpi_rows:
             supabase.table("kpi_monthly").insert(kpi_rows).execute()
-            logger.info(f"✅ KPI Monthly: {len(kpi_rows)} store-e")
-
-        return len(monthly_rows), len(kpi_rows)
+            logger.info(f"✅ PJESA 3: KPI financiare u llogaritën për {len(kpi_rows)} dyqane")
 
     except Exception as e:
-        logger.error(f"❌ ERROR monthly aggregation: {e}")
-        return 0, 0
+        logger.error(f"❌ ERROR NË PJESËN 3 (KPI dhe Financat): {e}")
+
+    return len(monthly_rows), len(kpi_rows)
 
 if __name__ == "__main__":
     run_monthly_aggregation()

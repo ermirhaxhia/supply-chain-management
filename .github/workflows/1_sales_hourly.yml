@@ -1,0 +1,32 @@
+name: 🛒 1. Sales Hourly (06:00-22:00)
+
+on:
+  schedule:
+    # Ekzekutohet çdo orë nga 06:00 deri 22:00 (Koha e Tiranës)
+    - cron: "0 4-20 * * *"
+  workflow_dispatch:
+
+jobs:
+  run-sales:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Setup Python
+        uses: actions/setup-python@v5.4.0
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Sales Module
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        # Këtu thërrasim komandën specifike për shitjet
+        run: python scheduler/scheduler.py --job sales

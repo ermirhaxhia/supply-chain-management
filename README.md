@@ -217,7 +217,6 @@ supply-chain-management/
 │   └── marketing_module.py          # Kampanja + ROI
 │
 ├── 📁 aggregation/
-│   ├── hourly_aggregator.py          # Agregim çdo orë → sales_hourly
 │   ├── daily_aggregator.py           # Agregim çdo natë → sales_daily
 │   └── monthly_aggregator.py        # Agregim fund muaji → kpi_monthly
 │

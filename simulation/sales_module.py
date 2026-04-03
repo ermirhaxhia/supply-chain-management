@@ -206,7 +206,7 @@ def select_products_for_basket(
         return [np.random.choice(products)] if products else []
 
 # ============================================================
-# GJENERO 1 TRANSAKSION (FATURË)
+# GJENERO 1 TRANSAKSION (FATURË + DETAJET)
 # ============================================================
 def generate_transaction(
     store: dict,
@@ -214,10 +214,9 @@ def generate_transaction(
     dt: datetime
 ) -> dict | None:
     """
-    Gjeneron 1 faturë të plotë me të gjitha detajet.
-
-    Returns:
-        dict : transaksioni i plotë ose None nëse dështon
+    Gjeneron 1 faturë të plotë të ndarë në dysh:
+    - header (për tabelën transactions)
+    - items  (për tabelën sales_hourly)
     """
     try:
         # ── 1. Basket type dhe size ──────────────────────
@@ -233,7 +232,6 @@ def generate_transaction(
             return None
 
         # ── 3. Stockout check ────────────────────────────
-        # Simulon rastin kur produkti nuk është në stok
         available_products = []
         for p in selected_products:
             if np.random.random() > STOCKOUT_PROBABILITY:
@@ -243,12 +241,32 @@ def generate_transaction(
             logger.debug(f"🚫 Store {store['store_id']}: Stockout total për këtë faturë")
             return None
 
-        # ── 4. Llogarit totalin dhe ruaj produktet e shportës ──
+        # ── 4. Discount (Për të gjithë faturën) ──────────
+        discount_pct = 0.0
+        promo_id     = None
+        promo_active = get_config("promo_active", 0.0)
+
+        if promo_active == 1.0:
+            discount_pct = float(get_config("promo_discount_pct", 0.0))
+            promo_id     = "PROMO-ACTIVE"
+        elif np.random.random() < DISCOUNT_PROBABILITY:
+            val = float(np.random.randint(DISCOUNT_RANGE[0], DISCOUNT_RANGE[1]))
+            discount_pct = min(val, 20.0) 
+
+        # ── 5. Llogaritjet Financiare Dhe Detajet ────────
         basket_items = []
-        total = 0.0
         
+        # Variablat Agreguese të Faturës
+        total_items           = 0
+        total_revenue_gross   = 0.0
+        total_discount_amount = 0.0
+        total_net_revenue     = 0.0
+        total_cogs            = 0.0
+
         for p in available_products:
             price = float(p.get("unit_price", 100))
+            # Nëse nuk e ke kolonën 'unit_cost' te db e produkteve, supozojmë 60%
+            unit_cost = float(p.get("unit_cost", price * 0.6))
             
             # Logjika e sasisë (qty)
             if price < 150:
@@ -263,130 +281,158 @@ def generate_transaction(
             elif basket_type == "bulk":
                 qty = np.random.randint(2, 6) if price < 200 else 1
 
-            item_total = price * qty
-            total += item_total
-            
-            # Ruajmë çdo produkt veç e veç në një listë
+            # Matematika për këtë Rresht (Produkt)
+            item_gross_revenue = price * qty
+            item_discount      = item_gross_revenue * (discount_pct / 100)
+            item_net_rev       = item_gross_revenue - item_discount
+            item_cogs          = unit_cost * qty
+            item_profit        = item_net_rev - item_cogs
+
+            # Përditëso totalet e faturës (Header)
+            total_items           += qty
+            total_revenue_gross   += item_gross_revenue
+            total_discount_amount += item_discount
+            total_net_revenue     += item_net_rev
+            total_cogs            += item_cogs
+
+            # Shto rreshtin te lista e produkteve (Këto shkojnë te sales_hourly)
             basket_items.append({
-                "product_id": p["product_id"],
-                "unit_price": price,
-                "quantity": qty,
-                "item_total": item_total
+                "store_id":           store["store_id"],
+                "product_id":         p["product_id"],
+                "date":               dt.date().isoformat(),
+                "hour":               dt.hour,
+                "units_sold":         qty,
+                "revenue":            round(item_gross_revenue, 2),
+                "discount_amount":    round(item_discount, 2),
+                "net_revenue":        round(item_net_rev, 2),
+                "cogs":               round(item_cogs, 2),
+                "gross_profit":       round(item_profit, 2),
+                "transactions_count": 1 # Për agregimin e numrit të faturave
             })
 
-        # ── 5. Discount (Zbritja) - RRESHTI 230 ────────────────────────
-        discount_pct = 0.0
-        promo_id     = None
-        promo_active = get_config("promo_active", 0.0)
-
-        if promo_active == 1.0:
-            discount_pct = float(get_config("promo_discount_pct", 0.0))
-            promo_id     = "PROMO-ACTIVE"
-        elif np.random.random() < DISCOUNT_PROBABILITY:
-            # Kufizojmë discount-in që të mos kalojë kurrë 20%
-            val = float(np.random.randint(DISCOUNT_RANGE[0], DISCOUNT_RANGE[1]))
-            discount_pct = min(val, 20.0) 
-
-        # ── 6. Customer type dhe payment ─────────────────
+        # ── 6. Ndërtimi i Header të Faturës ──────────────
+        transaction_id = f"{TRANSACTION_ID_PREFIX}-{uuid.uuid4().hex[:10].upper()}"
         customer_type  = np.random.choice(list(CUSTOMER_TYPES.keys()), p=list(CUSTOMER_TYPES.values()))
         payment_method = np.random.choice(list(PAYMENT_METHODS.keys()), p=list(PAYMENT_METHODS.values()))
 
-        # ── 7. Transaction ID unik ───────────────────────
-        # 1 ID bazë + suffix unik për çdo produkt
-        base_id = f"{TRANSACTION_ID_PREFIX}-{uuid.uuid4().hex[:8].upper()}"
+        transaction_header = {
+            "transaction_id":  transaction_id,
+            "store_id":        store["store_id"],
+            "timestamp":       dt.isoformat(),
+            "customer_type":   customer_type,
+            "payment_method":  payment_method,
+            "promotion_id":    promo_id,
+            "total_items":     total_items,
+            "revenue":         round(total_revenue_gross, 2),
+            "discount_amount": round(total_discount_amount, 2),
+            "net_revenue":     round(total_net_revenue, 2),
+            "cogs":            round(total_cogs, 2),
+            "gross_profit":    round(total_net_revenue - total_cogs, 2)
+        }
 
-        # ── 8. Ndërto objektin final ──────────────────────
-        transactions_list = []
-        for idx, item in enumerate(basket_items):
-            item_total_discounted = item["item_total"] * (1 - (discount_pct / 100))
-
-            transactions_list.append({
-                "transaction_id": f"{base_id}-{idx:02d}",  # ← unik për çdo rresht
-                "store_id":       store["store_id"],
-                "product_id":     item["product_id"],
-                "timestamp":      dt.isoformat(),
-                "quantity":       item["quantity"],
-                "unit_price":     item["unit_price"],
-                "discount_pct":   round(discount_pct, 2),
-                "total":          round(max(0, item_total_discounted), 2),
-                "payment_method": payment_method,
-                "promotion_id":   promo_id,
-                "customer_type":  customer_type,
-            })
-
-        return transactions_list
+        # Kthen të dyja objektet pa humbur asgjë
+        return {
+            "header": transaction_header,
+            "items": basket_items
+        }
     
     except Exception as e:
+        # Kapim çdo gjë dhe e logojmë saktësisht ku ndodhi
         logger.error(f"❌ ERROR në generate_transaction: {e}")
         return None
+    
+
 
 # ============================================================
 # GJENERO TË GJITHA TRANSAKSIONET PËR 1 ORË
 # ============================================================
 def run_sales_hour(store: dict, products: list, dt: datetime) -> dict:
     """
-    Ekzekuton simulimin e shitjeve për 1 store, 1 orë.
-
-    Returns:
-        dict : statistikat e orës
+    Orkestron gjenerimin dhe insertimin e të gjitha shitjeve për 1 dyqan në 1 orë specifike.
+    
+    Hapat që ndjek:
+    1. Llogarit numrin e klientëve bazuar në profilin e kërkesës për orën/ditën.
+    2. Gjeneron të dhënat në memorje (përmes `generate_transaction`) dhe i ndan në 2 lista.
+    3. Ekzekuton Insert në Supabase për Faturat (Transactions) në grupe prej 500.
+    4. Ekzekuton Insert në Supabase për Detajet (Sales Hourly) në grupe prej 500.
+    5. Mbledh dhe kthen statistikat përmbledhëse të kësaj ore.
+    
+    Siguria: Përdor blloqe `try...except` të izoluara për çdo insertim. Nëse tabela
+    e detajeve dështon, tabela e faturave nuk preket, duke bërë izolimin e gabimit.
     """
     logger.info(f"🏪 Store {store['store_id']} [{store['city']}] | {dt.strftime('%Y-%m-%d %H:%M')}")
 
-    # Numri i klientëve për këtë orë
     num_customers = get_customers(store, dt)
 
-    transactions      = []
-    total_revenue     = 0.0
+    all_headers       = []
+    all_items         = []
+    total_net_revenue = 0.0
     failed_count      = 0
     basket_type_stats = {"quick": 0, "medium": 0, "family": 0, "bulk": 0}
 
+    # 1. Përgatitja e të dhënave në memorje
     for _ in range(num_customers):
         txn = generate_transaction(store, products, dt)
         if txn:
-            # 1. Shtojmë të gjitha produktet e kësaj fature në listën kryesore
-            transactions.extend(txn) 
+            all_headers.append(txn["header"])
+            all_items.extend(txn["items"])
             
-            # 2. Mbledhim totalin e çdo produkti për të gjetur totalin e faturës
-            total_revenue += sum(item["total"] for item in txn) 
+            # Kujdes: Tani përdorim net_revenue për të pasqyruar realitetin e xhiros
+            total_net_revenue += txn["header"]["net_revenue"] 
             
-            # 3. Track basket type stats (Shporta llogaritet si 1 e vetme, pavarësisht sa produkte ka)
             basket_type = get_basket_type(dt)
             basket_type_stats[basket_type] = basket_type_stats.get(basket_type, 0) + 1
         else:
             failed_count += 1
 
-    # ── INSERT në Supabase ────────────────────────────────
-    inserted = 0
-    if transactions:
+    # 2. INSERT PËR TRANSAKSIONET (HEADERS)
+    inserted_headers = 0
+    if all_headers:
         try:
-            # Batch insert — max 500 në herë
             batch_size = 500
-            for i in range(0, len(transactions), batch_size):
-                batch = transactions[i:i + batch_size]
+            for i in range(0, len(all_headers), batch_size):
+                batch = all_headers[i:i + batch_size]
                 response = supabase.table("transactions").insert(batch).execute()
                 if response.data:
-                    inserted += len(response.data)
+                    inserted_headers += len(response.data)
                 else:
-                    logger.warning(f"⚠️  Batch {i//batch_size + 1}: Nuk u kthye data")
+                    logger.warning(f"⚠️  Batch TRANSACTIONS {i//batch_size + 1}: Nuk u kthye data")
         except Exception as e:
-            logger.error(f"❌ ERROR INSERT transactions: {e}")
+            logger.error(f"❌ ERROR Kritik INSERT transactions: {e}")
 
-    # ── Statistikat e orës ───────────────────────────────
+    # 3. INSERT PËR DETAJET ORARE (ITEMS)
+    inserted_items = 0
+    if all_items:
+        try:
+            batch_size = 500
+            for i in range(0, len(all_items), batch_size):
+                batch = all_items[i:i + batch_size]
+                response = supabase.table("sales_hourly").insert(batch).execute()
+                if response.data:
+                    inserted_items += len(response.data)
+                else:
+                    logger.warning(f"⚠️  Batch SALES_HOURLY {i//batch_size + 1}: Nuk u kthye data")
+        except Exception as e:
+            logger.error(f"❌ ERROR Kritik INSERT sales_hourly: {e}")
+
+    # 4. Statistikat për Printimin Final
     stats = {
         "store_id":       store["store_id"],
         "hour":           dt.hour,
         "customers":      num_customers,
-        "transactions":   inserted,
+        "transactions":   inserted_headers, # Printon sa fatura u ngarkuan
+        "items_sold":     inserted_items,   # Printon sa rreshta shkuan te sales_hourly
         "failed":         failed_count,
-        "total_revenue":  round(total_revenue, 2),
-        "avg_basket":     round(total_revenue / inserted, 2) if inserted > 0 else 0,
+        "total_revenue":  round(total_net_revenue, 2),
+        "avg_basket":     round(total_net_revenue / inserted_headers, 2) if inserted_headers > 0 else 0,
         "basket_types":   basket_type_stats,
     }
 
     logger.info(
         f"  ✅ Klientë={num_customers} | "
-        f"Fatura={inserted} | "
-        f"Revenue={total_revenue:,.0f} Lekë | "
+        f"Fatura={inserted_headers} | "
+        f"Produkte(Rreshta)={inserted_items} | "
+        f"Net Revenue={total_net_revenue:,.0f} Lekë | "
         f"Avg={stats['avg_basket']:,.0f} Lekë"
     )
 
