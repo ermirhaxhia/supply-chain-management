@@ -1,18 +1,18 @@
 # ============================================================
 # scheduler/scheduler.py
-# VERZIONI I KORRIGJUAR (Timezone, Error Handling, Window Scan)
+# VERZIONI FINAL — GitHub Actions + Supabase + Error Handling
 # ============================================================
 
 import sys
 import os
 import logging
 from datetime import datetime, timedelta
-import pytz  # Për korrigjimin e orës UTC -> Tiranë
-from apscheduler.schedulers.blocking import BlockingScheduler
-from apscheduler.triggers.cron import CronTrigger
-import httpx
+import pytz
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# ── PATH SETUP ───────────────────────────────────────────────
+# Siguron që Python gjen modulet në dosjet simulation/ dhe config/
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(BASE_DIR)
 
 from config.settings import supabase
 from simulation.demand_profile import load_simulation_config
@@ -21,11 +21,11 @@ from simulation.inventory_module import initialize_stock, run_inventory_hour
 from simulation.purchasing_module import run_purchasing
 from simulation.warehouse_module import run_warehouse_hour
 
-# ============================================================
-# KONFIGURIMI I ORËS DHE LOGGING
-# ============================================================
+# ── TIMEZONE ─────────────────────────────────────────────────
+# Përdorim pytz për të trajtuar DST (UTC+1 dimër / UTC+2 verë)
 TZ = pytz.timezone("Europe/Tirane")
 
+# ── LOGGING ──────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -33,37 +33,73 @@ logging.basicConfig(
 )
 logger = logging.getLogger("scheduler")
 
-# Variablat globale për cache
-_stores, _products, _warehouses, _vehicles = [], [], [], []
-_drivers, _routes, _categories = [], [], []
-_stock_cache = {}
-_initialized = False
+# ── VARIABLAT GLOBALE ─────────────────────────────────────────
+# Ruhen në RAM gjatë ekzekutimit — nuk ri-ngarkohen për çdo store
+_stores:     list = []
+_products:   list = []
+_warehouses: list = []
 
-def load_all_data():
-    """Ngarko të dhënat reference nga Supabase."""
-    global _stores, _products, _warehouses, _vehicles
-    global _drivers, _routes, _categories, _initialized
-
-    logger.info("📦 Duke ngarkuar të dhënat reference...")
-    _stores     = supabase.table("stores").select("*").execute().data or []
-    _products   = supabase.table("products").select("*").execute().data or []
-    _warehouses = supabase.table("warehouses").select("*").execute().data or []
-    _vehicles   = supabase.table("vehicles").select("*").execute().data or []
-    _drivers    = supabase.table("drivers").select("*").execute().data or []
-    _routes     = supabase.table("routes").select("*").execute().data or []
-    _categories = supabase.table("product_categories").select("*").execute().data or []
-
-    if not _stores or not _products:
-        raise RuntimeError("❌ Stores ose Products mungojnë në Supabase")
-    _initialized = True
 
 # ============================================================
-# SIMULATION TICK — FUNKSIONI KRYESOR
+# NGARKIMI I TË DHËNAVE REFERENCE
+# ============================================================
+def load_all_data():
+    """
+    Ngarko të gjitha të dhënat reference nga Supabase.
+    Thirret një herë në fillim të çdo ekzekutimi.
+    Nëse Stores ose Products mungojnë, procesi ndalon (sys.exit).
+    """
+    global _stores, _products, _warehouses
+
+    logger.info("📦 Duke ngarkuar të dhënat reference nga Supabase...")
+
+    try:
+        _stores     = supabase.table("stores").select("*").execute().data or []
+        _products   = supabase.table("products").select("*").execute().data or []
+        _warehouses = supabase.table("warehouses").select("*").execute().data or []
+    except Exception as e:
+        logger.critical(f"❌ DËSHTIM: Nuk u lidh me Supabase: {e}", exc_info=True)
+        sys.exit(1)
+
+    # Validimi i të dhënave kritike
+    if not _stores:
+        logger.critical("❌ Tabela 'stores' është bosh ose nuk u arrit.")
+        sys.exit(1)
+
+    if not _products:
+        logger.critical("❌ Tabela 'products' është bosh ose nuk u arrit.")
+        sys.exit(1)
+
+    if not _warehouses:
+        logger.warning("⚠️  Tabela 'warehouses' është bosh — purchasing mund të dështojë.")
+
+    logger.info(
+        f"✅ U ngarkuan: {len(_stores)} stores | "
+        f"{len(_products)} products | "
+        f"{len(_warehouses)} warehouses"
+    )
+
+
+# ============================================================
+# SIMULATION TICK — CIKLI KRYESOR ORAR
 # ============================================================
 def simulation_tick():
-    global _stock_cache, _initialized
+    """
+    Ekzekuton ciklin e plotë të simulimit për 1 orë.
 
-    # ZGJIDHJA 1: Korrigjimi i Timezone (UTC -> Tiranë)
+    Hapat:
+      1. Llogarit orën aktuale në timezone-n e Shqipërisë
+      2. Ngarkon konfigurimin dhe të dhënat reference
+      3. Për çdo store:
+         a. Gjeneron shitjet (transactions + sales_hourly)
+         b. Lexon sales_hourly për të përditësuar stokun
+         c. Ekzekuton inventory update
+         d. Ekzekuton purchasing nëse është ora 08:00
+      4. Ekzekuton warehouse snapshots
+      5. Nëse ndodh gabim kritik, GitHub Actions del e KUQE (exit code 1)
+    """
+
+    # ── Ora aktuale në Tiranë (merr parasysh DST) ────────────
     dt = datetime.now(TZ).replace(minute=0, second=0, microsecond=0)
 
     logger.info("=" * 60)
@@ -71,91 +107,170 @@ def simulation_tick():
     logger.info("=" * 60)
 
     try:
-        load_simulation_config()
+        # ── A. Ngarko konfigurimin e simulimit ───────────────
+        try:
+            load_simulation_config()
+            logger.info("✅ Simulation config u ngarkua.")
+        except Exception as e:
+            logger.critical(f"❌ load_simulation_config dështoi: {e}", exc_info=True)
+            sys.exit(1)
 
-        if not _initialized:
-            load_all_data()
-            _stock_cache = initialize_stock(_stores, _products)
+        # ── B. Ngarko të dhënat reference ────────────────────
+        load_all_data()
 
+        # ── C. Përgatit strukturat ndihmëse ──────────────────
+        _stock_cache = initialize_stock(_stores, _products)
         products_map = {p["product_id"]: p for p in _products}
-        wh_id = _warehouses[0]["warehouse_id"]
+        wh_id        = _warehouses[0]["warehouse_id"] if _warehouses else None
 
-        # 1. Transporti
-        _run_transport_always(_routes, _vehicles, _drivers, dt)
-
-        # 2. Sales + Inventory për çdo store
+        # ── D. Loop për çdo store ─────────────────────────────
         for store in _stores:
-            store_id = store["store_id"]
+            store_id   = store["store_id"]
+            store_name = store.get("city", store_id)
 
-            # Ekzekuto shitjet
-            run_sales_hour(store, _products, dt)
+            logger.info(f"── Store {store_id} [{store_name}] ──────────────────────")
 
-            # ZGJIDHJA 3: Zgjerimi i dritares në 65 minuta
-            # Siguron që inventory kap të gjitha transaksionet edhe nëse Sales vonohet
-            ts_start = (dt - timedelta(minutes=65)).isoformat()
+            # ── 1. SHITJET ────────────────────────────────────
+            # Gjeneron transaksionet dhe i dërgon në:
+            #   → tabela 'transactions'  (header i faturës)
+            #   → tabela 'sales_hourly'  (detajet e produkteve)
+            try:
+                run_sales_hour(store, _products, dt)
+            except Exception as e:
+                logger.error(
+                    f"❌ run_sales_hour dështoi për {store_id}: {e}",
+                    exc_info=True
+                )
+                # Vazhdojmë me store-in tjetër — nuk ndalet gjithë procesi
+                continue
 
-            txn_resp = (
-                supabase.table("transactions")
-                .select("product_id, quantity, total, discount_pct")
-                .eq("store_id", store_id)
-                .gte("timestamp", ts_start)
-                .execute()
-            )
-            
-            # Përditëso inventarin bazuar në shitjet e sapokryera
-            run_inventory_hour(store, _products, products_map, txn_resp.data or [], dt)
+            # ── 2. LEXO SALES_HOURLY PËR INVENTORY ───────────
+            # Tabela 'transactions' nuk ka product_id — detajet janë në 'sales_hourly'
+            # run_inventory_hour pret: [{"product_id": "...", "quantity": N}, ...]
+            transactions_for_inventory = []
+            try:
+                sales_resp = (
+                    supabase.table("sales_hourly")
+                    .select("product_id, units_sold")
+                    .eq("store_id", store_id)
+                    .eq("date", dt.date().isoformat())
+                    .eq("hour", dt.hour)
+                    .execute()
+                )
 
-            # Furnizimi (çdo ditë ora 08:00)
+                # Riemëro 'units_sold' → 'quantity' siç e pret run_inventory_hour
+                transactions_for_inventory = [
+                    {
+                        "product_id": row["product_id"],
+                        "quantity":   row["units_sold"]
+                    }
+                    for row in (sales_resp.data or [])
+                ]
+
+                logger.info(
+                    f"   📋 sales_hourly: {len(transactions_for_inventory)} "
+                    f"rreshta për inventory."
+                )
+
+            except Exception as e:
+                logger.warning(
+                    f"⚠️  Leximi i sales_hourly dështoi për {store_id}: {e} "
+                    f"— Inventory do të ekzekutohet me listë bosh.",
+                    exc_info=True
+                )
+
+            # ── 3. INVENTARI ──────────────────────────────────
+            # Përditëson stokun bazuar në shitjet e sapokryera
+            try:
+                run_inventory_hour(
+                    store,
+                    _products,
+                    products_map,
+                    transactions_for_inventory,
+                    dt
+                )
+            except Exception as e:
+                logger.warning(
+                    f"⚠️  run_inventory_hour dështoi për {store_id}: {e}",
+                    exc_info=True
+                )
+
+            # ── 4. FURNIZIMI (vetëm ora 08:00) ────────────────
+            # Gjeneron porositë e furnizimit për dyqanin
             if dt.hour == 8:
-                run_purchasing(store, _products, _stock_cache, wh_id, dt)
+                if wh_id:
+                    try:
+                        run_purchasing(store, _products, _stock_cache, wh_id, dt)
+                        logger.info(f"   🛒 Purchasing u ekzekutua për {store_id}.")
+                    except Exception as e:
+                        logger.warning(
+                            f"⚠️  run_purchasing dështoi për {store_id}: {e}",
+                            exc_info=True
+                        )
+                else:
+                    logger.warning(
+                        f"⚠️  Purchasing anashkaluar për {store_id} "
+                        f"— warehouse_id nuk u gjet."
+                    )
 
-        # 3. Warehouse Snapshots
-        shp_resp = supabase.table("shipments").select("*").gte("departure_time", dt.isoformat()).execute()
-        run_warehouse_hour(_warehouses, shp_resp.data or [], dt)
+        # ── E. WAREHOUSE SNAPSHOTS ────────────────────────────
+        # Regjistron gjendjen e magazinës për këtë orë
+        try:
+            run_warehouse_hour(_warehouses, [], dt)
+            logger.info("✅ Warehouse snapshots u ekzekutuan.")
+        except Exception as e:
+            logger.warning(f"⚠️  run_warehouse_hour dështoi: {e}", exc_info=True)
 
-        logger.info(f"✅ TICK KOMPLETUAR | {dt.strftime('%H:%M')}")
+        # ── F. PËRFUNDIMI ─────────────────────────────────────
+        logger.info("=" * 60)
+        logger.info(f"✅ TICK KOMPLETUAR | {dt.strftime('%Y-%m-%d %H:%M')}")
+        logger.info("=" * 60)
 
     except Exception as e:
-        # ZGJIDHJA 4: RAISE — Detyron GitHub Actions të dalë e KUQE ❌ nëse ka error
-        logger.critical(f"❌ TICK DËSHTOI: {e}", exc_info=True)
-        raise e 
+        # Gabim i papritur kritik — del me exit code 1
+        # GitHub Actions e shfaq si ❌ Failed
+        logger.critical(f"❌ DËSHTIM KRITIK I PAPRITUR: {e}", exc_info=True)
+        sys.exit(1)
 
-def _run_transport_always(routes, vehicles, drivers, dt):
-    from simulation.transport_module import generate_shipment
-    import numpy as np
-    ship_list = []
-    for r in routes:
-        if vehicles and drivers:
-            v, d = np.random.choice(vehicles), np.random.choice(drivers)
-            s = generate_shipment(r, v, d, dt)
-            if s: ship_list.append(s)
-    if ship_list:
-        supabase.table("shipments").insert(ship_list).execute()
 
 # ============================================================
-# MAIN ENTRY POINT — Përditësuar me Agregimet e Reja
+# ENTRY POINT — GitHub Actions e thërret këtë direkt
 # ============================================================
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--job", choices=["sales", "daily", "monthly"])
-    parser.add_argument("--manual", action="store_true")
+
+    parser = argparse.ArgumentParser(description="Supply Chain Simulation Scheduler")
+    parser.add_argument(
+        "--job",
+        choices=["sales", "daily", "monthly"],
+        required=True,
+        help="Lloji i punës: sales=tick orar | daily=agregim ditor | monthly=agregim mujor"
+    )
     args = parser.parse_args()
 
-    load_all_data()
-    _stock_cache = initialize_stock(_stores, _products)
-    _initialized = True
-
-    # ZGJIDHJA 2: Jobs të veçanta për të shmangur dështimin e agregimeve
-    if args.job == "sales" or args.manual:
+    # ── JOB: SALES (Tick Orar) ────────────────────────────────
+    if args.job == "sales":
+        logger.info("🚀 Duke nisur: Simulation Tick (Orar)...")
         simulation_tick()
-    
+
+    # ── JOB: DAILY AGGREGATION ────────────────────────────────
     elif args.job == "daily":
-        logger.info("📅 Duke ekzekutuar: Daily Aggregation...")
-        from aggregation.daily_aggregator import run_daily_aggregation
-        run_daily_aggregation(datetime.now(TZ))
-        
+        logger.info("📅 Duke nisur: Daily Aggregation...")
+        try:
+            from aggregation.daily_aggregator import run_daily_aggregation
+            run_daily_aggregation(datetime.now(TZ))
+            logger.info("✅ Daily Aggregation përfundoi.")
+        except Exception as e:
+            logger.critical(f"❌ Daily Aggregation dështoi: {e}", exc_info=True)
+            sys.exit(1)
+
+    # ── JOB: MONTHLY AGGREGATION ──────────────────────────────
     elif args.job == "monthly":
-        logger.info("📊 Duke ekzekutuar: Monthly Aggregation...")
-        from aggregation.monthly_aggregator import run_monthly_aggregation
-        run_monthly_aggregation(datetime.now(TZ))
+        logger.info("📊 Duke nisur: Monthly Aggregation...")
+        try:
+            from aggregation.monthly_aggregator import run_monthly_aggregation
+            run_monthly_aggregation(datetime.now(TZ))
+            logger.info("✅ Monthly Aggregation përfundoi.")
+        except Exception as e:
+            logger.critical(f"❌ Monthly Aggregation dështoi: {e}", exc_info=True)
+            sys.exit(1)
