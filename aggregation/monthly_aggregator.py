@@ -27,16 +27,15 @@ def run_monthly_aggregation(dt: datetime = None):
     """
     
     # ============================================================
-    # PJESA 1: PËRGATITJA E DATAVE (Gjetja e muajit të kaluar)
+    # PJESA 1: PËRGATITJA E DATAVE
     # ============================================================
     if dt is None:
         dt = datetime.now()
 
-    # KUJDES: Për testimin tënd aktual, po targetojmë muajin e sotëm (Prill)
-    # Në prodhim, kjo duhet të jetë dt.month - 1
+    # Targetojmë muajin aktual për testim
     year, month = dt.year, dt.month
 
-    # RREGULLIMI: Gjejmë ditën e fundit të saktë (psh. 30 për Prillin, 28 për Shkurtin)
+    # Gjejmë ditën e fundit të saktë të muajit
     last_day = calendar.monthrange(year, month)[1]
 
     month_start = f"{year}-{month:02d}-01"
@@ -57,42 +56,47 @@ def run_monthly_aggregation(dt: datetime = None):
             logger.warning(f"⚠️ Nuk u gjetën të dhëna në sales_daily për {year}-{month:02d}")
             return
 
-        # 2. Grupimi i të dhënave sipas Dyqanit dhe Produktit
+        # 2. Grupimi i të dhënave (Përdorim emra të plotë për të shmangur KeyError)
         groups = {}
         for row in daily_data:
             key = (row["store_id"], row["product_id"])
             if key not in groups:
                 groups[key] = {
-                    "units": 0, "rev": 0.0, "disc": 0.0, 
-                    "net": 0.0, "cogs": 0.0, "profit": 0.0, "txns": 0
+                    "units_sold": 0, 
+                    "revenue": 0.0, 
+                    "discount_amount": 0.0, 
+                    "net_revenue": 0.0, 
+                    "cogs": 0.0, 
+                    "gross_profit": 0.0, 
+                    "transactions_count": 0
                 }
             
-            groups[key]["units"]  += row.get("units_sold", 0)
-            groups[key]["rev"]    += row.get("revenue", 0.0)
-            groups[key]["disc"]   += row.get("discount_amount", 0.0)
-            groups[key]["net"]    += row.get("net_revenue", 0.0)
-            groups[key]["cogs"]   += row.get("cogs", 0.0)
-            groups[key]["profit"] += row.get("gross_profit", 0.0)
-            groups[key]["txns"]   += row.get("transactions_count", 0)
+            groups[key]["units_sold"]        += row.get("units_sold", 0)
+            groups[key]["revenue"]           += row.get("revenue", 0.0)
+            groups[key]["discount_amount"]   += row.get("discount_amount", 0.0)
+            groups[key]["net_revenue"]       += row.get("net_revenue", 0.0)
+            groups[key]["cogs"]              += row.get("cogs", 0.0)
+            groups[key]["gross_profit"]      += row.get("gross_profit", 0.0)
+            groups[key]["transactions_count"] += row.get("transactions_count", 0)
 
         # 3. Përgatitja e rreshtave për sales_monthly
         monthly_sales_rows = []
         for (sid, pid), v in groups.items():
-            avg_p = v["rev"] / v["units"] if v["units"] > 0 else 0
+            avg_p = v["revenue"] / v["units_sold"] if v["units_sold"] > 0 else 0
             
             monthly_sales_rows.append({
                 "store_id": sid,
                 "product_id": pid,
                 "year": year,
                 "month": month,
-                "units_sold": v["units"],
+                "units_sold": v["units_sold"],
                 "avg_unit_price": round(avg_p, 2),
-                "revenue": round(v["rev"], 2),
-                "discount_amount": round(v["disc"], 2),
-                "net_revenue": round(v["net"], 2),
-                "cogs": round(v["c"] ,2),
-                "gross_profit": round(v["profit"], 2),
-                "transactions_count": v["txns"]
+                "revenue": round(v["revenue"], 2),
+                "discount_amount": round(v["discount_amount"], 2),
+                "net_revenue": round(v["net_revenue"], 2),
+                "cogs": round(v["cogs"] ,2),
+                "gross_profit": round(v["gross_profit"], 2),
+                "transactions_count": v["transactions_count"]
             })
 
         # 4. Insertimi në sales_monthly
@@ -121,7 +125,8 @@ def run_monthly_aggregation(dt: datetime = None):
             total_txns    = sum(r["transactions_count"] for r in store_data)
             
             # Llogaritjet e kostove
-            store_transport = total_transport_all / len(unique_stores) if unique_stores else 0
+            num_stores = len(unique_stores) if len(unique_stores) > 0 else 1
+            store_transport = total_transport_all / num_stores
             inventory_holding_cost = total_cogs * 0.02
             total_cost = total_cogs + store_transport + inventory_holding_cost
 
