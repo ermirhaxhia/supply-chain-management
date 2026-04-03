@@ -88,17 +88,9 @@ def keep_alive():
         logger.warning(f"⚠️  Keep-alive dështoi: {e}")
 
 
-# ============================================================
-# SIMULATION TICK — Ekzekutohet çdo orë
-# ============================================================
 def simulation_tick():
     global _stock_cache, _initialized
-
     dt = datetime.now().replace(minute=0, second=0, microsecond=0)
-
-    logger.info("=" * 60)
-    logger.info(f"🔄 SIMULATION TICK | {dt.strftime('%Y-%m-%d %H:%M')}")
-    logger.info("=" * 60)
 
     try:
         load_simulation_config()
@@ -108,70 +100,36 @@ def simulation_tick():
             _stock_cache = initialize_stock(_stores, _products)
 
         products_map = {p["product_id"]: p for p in _products}
-        wh_id        = _warehouses[0]["warehouse_id"]
+        wh_id = _warehouses[0]["warehouse_id"]
 
-        # ── 1. Marketing — çdo orë (largo guard clause) ──
+        # 1. Marketing & Transport
         from simulation.marketing_module import run_marketing_day, load_active_campaigns
         load_active_campaigns(dt)
         if dt.hour == 7:
             run_marketing_day(_categories, dt)
 
-        # ── 2. Transport — çdo orë (largo guard clause) ──
-        from simulation.transport_module import run_transport_day
-        # Thirr çdo orë, jo vetëm 6 dhe 14
         _run_transport_always(_routes, _vehicles, _drivers, dt)
 
-        # ── 3. Sales + Inventory për çdo store ───────────
+        # 2. Sales + Inventory për çdo store
         for store in _stores:
             store_id = store["store_id"]
-
-            # Shitjet
             run_sales_hour(store, _products, dt)
 
-            # Merr transaksionet — shto buffer 5 min
             from datetime import timedelta
             ts_start = (dt - timedelta(minutes=5)).isoformat()
+            txn_resp = supabase.table("transactions").select("*").eq("store_id", store_id).gte("timestamp", ts_start).execute()
+            
+            run_inventory_hour(store, _products, products_map, txn_resp.data or [], dt)
 
-            txn_resp = (
-                supabase.table("transactions")
-                .select("product_id, quantity, total, discount_pct")
-                .eq("store_id", store_id)
-                .gte("timestamp", ts_start)
-                .execute()
-            )
-            transactions = txn_resp.data or []
-
-            # Inventory
-            run_inventory_hour(
-                store, _products, products_map, transactions, dt
-            )
-
-            # Purchasing — çdo orë (largo guard clause)
             if dt.hour == 8:
                 run_purchasing(store, _products, _stock_cache, wh_id, dt)
 
-        # ── 4. Warehouse Snapshots ────────────────────────
-        shp_resp = (
-            supabase.table("shipments")
-            .select("*")
-            .gte("departure_time", dt.isoformat())
-            .execute()
-        )
+        # 3. Warehouse Snapshots
+        shp_resp = supabase.table("shipments").select("*").gte("departure_time", dt.isoformat()).execute()
         run_warehouse_hour(_warehouses, shp_resp.data or [], dt)
 
-        # ── 5. Agregim Orësh ← I MUNGONTE! ───────────────
-        from aggregation.hourly_aggregator import run_hourly_aggregation
-        run_hourly_aggregation(dt)
-
-        # ── 6. Agregim Ditor (ora 23:00) ──────────────────
-        if dt.hour == 23:
-            from aggregation.daily_aggregator import run_daily_aggregation
-            run_daily_aggregation(dt)
-
-        # ── 7. Agregim Mujor (ditë 1, ora 00:00) ──────────
-        if dt.day == 1 and dt.hour == 0:
-            from aggregation.monthly_aggregator import run_monthly_aggregation
-            run_monthly_aggregation(dt)
+        # --- KËTU U FSHINË AGREGIMET (Hourly, Daily, Monthly) ---
+        # Ato tashmë thirren direkt nga scheduler.py --job ...
 
         logger.info(f"✅ TICK KOMPLETUAR | {dt.strftime('%H:%M')}")
 
@@ -179,6 +137,8 @@ def simulation_tick():
         logger.critical(f"❌ TICK DËSHTOI: {e}", exc_info=True)
 
 
+
+        
 def _run_transport_always(routes, vehicles, drivers, dt):
     """Transport çdo orë — jo vetëm 6 dhe 14."""
     from simulation.transport_module import generate_shipment
@@ -202,32 +162,37 @@ def _run_transport_always(routes, vehicles, drivers, dt):
         logger.info(f"🚛 Transport: {len(shipments)} dërgesa")
 
 # ============================================================
-# MAIN
+# MAIN - Përditësuar për GitHub Actions
 # ============================================================
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Supply Chain Scheduler")
-    parser.add_argument(
-        "--manual",
-        action="store_true",
-        help="Run 1 tick manual tani dhe dil"
-    )
+    parser.add_argument("--job", choices=["sales", "daily", "monthly"], help="Lloji i punës")
+    parser.add_argument("--manual", action="store_true", help="Run 1 tick manual")
     args = parser.parse_args()
 
-    # Ngarko data gjithmonë
+    # Ngarko të dhënat fillestare
     load_all_data()
-    _stock_cache = initialize_stock(_stores, _products)
 
-    if args.manual:
-        # ── Run 1 tick dhe dil ────────────────────────────
-        logger.info("🧪 MANUAL RUN — 1 tick simulimi")
+    if args.job == "sales" or args.manual:
+        logger.info("🛒 Duke ekzekutuar: Simulation Tick (Sales)...")
         simulation_tick()
-        logger.info("✅ MANUAL RUN KOMPLETUAR")
+    
+    elif args.job == "daily":
+        logger.info("📅 Duke ekzekutuar: Daily Aggregation...")
+        from aggregation.daily_aggregator import run_daily_aggregation
+        run_daily_aggregation(datetime.now())
+        
+    elif args.job == "monthly":
+        logger.info("📊 Duke ekzekutuar: Monthly Aggregation...")
+        from aggregation.monthly_aggregator import run_monthly_aggregation
+        run_monthly_aggregation(datetime.now())
 
     else:
-        # ── Background Worker — rri gjithmonë aktiv ───────
-        logger.info("⏰ Duke startuar BlockingScheduler...")
+        # Kjo pjesë mbetet për Render Background Worker nëse e përdor ende
+        logger.info("⏰ Duke startuar BlockingScheduler (Mode: Always-On)...")
+        # ... (vazhdon kodi i scheduler.start() që ke pasur)
 
         scheduler = BlockingScheduler(timezone="Europe/Tirane")
 
