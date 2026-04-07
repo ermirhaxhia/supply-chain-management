@@ -85,8 +85,11 @@ def get_campaign_info(category_id: str) -> dict:
             if campaign.get("category_id") == category_id:
                 lift_pct = campaign.get("revenue_lift_pct", 0) / 100
                 result["demand_multiplier"] = 1.0 + lift_pct
-                result["discount_pct"]      = campaign.get("discount_pct", 0.0)
-                result["campaign_id"]       = campaign.get("campaign_id")
+                # FIX #2: discount_pct nga DB mund të jetë 0.25 ose 25.0
+                # Normalizojmë gjithmonë në % të plotë (25.0)
+                raw_disc = campaign.get("discount_pct", 0.0)
+                result["discount_pct"] = raw_disc * 100 if raw_disc < 1.0 else raw_disc
+                result["campaign_id"]  = campaign.get("campaign_id")
                 break
     except Exception as e:
         logger.error(f"❌ ERROR në get_campaign_info: {e}")
@@ -267,8 +270,10 @@ def run_marketing_day(categories: list, dt: datetime) -> dict:
                         {"config_value": 1.0}
                     ).eq("config_key", "promo_active").execute()
 
+                    # FIX #2: discount_pct ruhet si % e plotë (p.sh. 25.0 jo 0.25)
+                    # sales_module e aplikon: price * (discount_pct / 100)
                     supabase.table("simulation_config").update(
-                        {"config_value": new_campaign["discount_pct"]}
+                        {"config_value": float(new_campaign["discount_pct"])}
                     ).eq("config_key", "promo_discount_pct").execute()
 
                     supabase.table("simulation_config").update(
