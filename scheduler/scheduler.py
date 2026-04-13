@@ -20,6 +20,7 @@ from simulation.sales_module import run_sales_hour
 from simulation.inventory_module import initialize_stock, run_inventory_hour
 from simulation.purchasing_module import run_purchasing
 from simulation.warehouse_module import run_warehouse_hour
+from simulation.transport_module import run_transport_day
 
 # ── TIMEZONE ─────────────────────────────────────────────────
 # Përdorim pytz për të trajtuar DST (UTC+1 dimër / UTC+2 verë)
@@ -38,7 +39,9 @@ logger = logging.getLogger("scheduler")
 _stores:     list = []
 _products:   list = []
 _warehouses: list = []
-
+_routes:     list = []
+_vehicles:   list = []
+_drivers:    list = []
 
 # ============================================================
 # NGARKIMI I TË DHËNAVE REFERENCE
@@ -57,6 +60,10 @@ def load_all_data():
         _stores     = supabase.table("stores").select("*").execute().data or []
         _products   = supabase.table("products").select("*").execute().data or []
         _warehouses = supabase.table("warehouses").select("*").execute().data or []
+        _routes     = supabase.table("routes").select("*").execute().data or []
+        _vehicles   = supabase.table("vehicles").select("*").execute().data or []
+        _drivers    = supabase.table("drivers").select("*").execute().data or []
+
     except Exception as e:
         logger.critical(f"❌ DËSHTIM: Nuk u lidh me Supabase: {e}", exc_info=True)
         sys.exit(1)
@@ -213,10 +220,25 @@ def simulation_tick():
                         f"— warehouse_id nuk u gjet."
                     )
 
+            # ── 4.5. TRANSPORTI (vetëm ora 06:00) ─────────────────
+            # Nis kamionët për shpërndarjen e mëngjesit
+            active_shipments = []
+            if dt.hour == 6:
+                if _routes and _vehicles and _drivers:
+                    try:
+                        logger.info("🚚 Duke nisur flotën e transportit...")
+                        stats = run_transport_day(_routes, _vehicles, _drivers, dt)
+                        # Marrim ID-të ose një listë fiktive për t'ia kaluar magazinës
+                        active_shipments = [{"status": "dispatched"}] * stats.get("shipments", 0)
+                    except Exception as e:
+                        logger.warning(f"⚠️ run_transport_day dështoi: {e}", exc_info=True)
+                else:
+                    logger.warning("⚠️ Transporti u anashkalua — mungojnë të dhënat e rrugëve/mjeteve.")
+
         # ── E. WAREHOUSE SNAPSHOTS ────────────────────────────
         # Regjistron gjendjen e magazinës për këtë orë
         try:
-            run_warehouse_hour(_warehouses, [], dt)
+            run_warehouse_hour(_warehouses, active_shipments, dt)
             logger.info("✅ Warehouse snapshots u ekzekutuan.")
         except Exception as e:
             logger.warning(f"⚠️  run_warehouse_hour dështoi: {e}", exc_info=True)
