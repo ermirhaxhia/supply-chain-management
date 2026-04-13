@@ -580,7 +580,7 @@ REZULTAT: 500MB Supabase Free → ~4+ vjet historik
 **Ermir Haxhia**  
 MSc Applied Mathematics — Universiteti i Tiranës  
 
-🌐 [Portfolio]([https://ermir-haxhia.vercel.app](https://infrequent-network-348.notion.site/Ermir-Haxhia-Data-Analysis-Portfolio-32c61957cde1800ebff6d7c1190170ae)) 
+🌐 [Portfolio](https://infrequent-network-348.notion.site/Ermir-Haxhia-Data-Analysis-Portfolio-32c61957cde1800ebff6d7c1190170ae) 
 · [LinkedIn](https://www.linkedin.com/in/ermir-haxhia-b988212b5) 
 · [GitHub](https://github.com/ermirhaxhia)
 
