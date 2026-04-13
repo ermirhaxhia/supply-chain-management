@@ -65,7 +65,7 @@ def generate_shipment(
 
         # Ngarkesa 60-95% e kapacitetit
         load_pct     = np.random.uniform(0.60, 0.95)
-        load_kg      = round(capacity_kg * load_pct, 1)
+        load_kg      = float(round(capacity_kg * load_pct, 1))
         units        = int(load_kg / 0.8)  # ~0.8 kg/njësi mesatarisht
 
         # ── Karburanti ────────────────────────────────────
@@ -77,12 +77,12 @@ def generate_shipment(
         base_consumption = vehicle.get("consumption_l_km", 0.28)
         consumption      = base_consumption * np.random.normal(1.0, FUEL_CONSUMPTION_STD)
         consumption      = max(0.20, consumption)
-        fuel_consumed    = round(distance_km * consumption, 2)
+        fuel_consumed    = float(round(distance_km * consumption, 2))
 
         # ── Kosto transporti ──────────────────────────────
         fuel_cost        = fuel_consumed * fuel_price
         driver_cost      = np.random.uniform(500, 1500)  # Lekë/dërgesë
-        transport_cost   = round(fuel_cost + driver_cost, 2)
+        transport_cost   = float(round(fuel_cost + driver_cost, 2))
         cost_per_km      = round(transport_cost / distance_km, 2)
 
         # ── Vonesa ────────────────────────────────────────

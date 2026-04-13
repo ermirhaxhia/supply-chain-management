@@ -155,6 +155,10 @@ def run_purchasing(
         return {"orders_created": 0, "total_cost": 0}
 
     store_id = store["store_id"]
+
+    #Për t'i hapur rrugë porosive të ditës tjetër
+    global _active_orders
+    _active_orders.pop(store_id, None)
     logger.info(f"🛍️  Purchasing: {store_id} | {dt.strftime('%Y-%m-%d')}")
 
     orders      = []
