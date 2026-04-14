@@ -1,6 +1,9 @@
 # ============================================================
 # scheduler/scheduler.py
 # VERZIONI FINAL — GitHub Actions + Supabase + Error Handling
+# FIX 1: Marketing thirret çdo ditë ora 07:00
+# FIX 2: Stock cache përditësohet nga DB
+# FIX 3: Transport thirret 1 herë jashtë loop-it
 # ============================================================
 
 import sys
@@ -9,8 +12,6 @@ import logging
 from datetime import datetime, timedelta
 import pytz
 
-# ── PATH SETUP ───────────────────────────────────────────────
-# Siguron që Python gjen modulet në dosjet simulation/ dhe config/
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 
@@ -21,12 +22,14 @@ from simulation.inventory_module import initialize_stock, run_inventory_hour
 from simulation.purchasing_module import run_purchasing
 from simulation.warehouse_module import run_warehouse_hour
 from simulation.transport_module import run_transport_day
+from simulation.marketing_module import (      # FIX #1
+    run_marketing_day,
+    load_active_campaigns,
+    deactivate_expired_campaigns
+)
 
-# ── TIMEZONE ─────────────────────────────────────────────────
-# Përdorim pytz për të trajtuar DST (UTC+1 dimër / UTC+2 verë)
 TZ = pytz.timezone("Europe/Tirane")
 
-# ── LOGGING ──────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -34,25 +37,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger("scheduler")
 
-# ── VARIABLAT GLOBALE ─────────────────────────────────────────
-# Ruhen në RAM gjatë ekzekutimit — nuk ri-ngarkohen për çdo store
 _stores:     list = []
 _products:   list = []
 _warehouses: list = []
 _routes:     list = []
 _vehicles:   list = []
 _drivers:    list = []
+_categories: list = []
 
-# ============================================================
-# NGARKIMI I TË DHËNAVE REFERENCE
-# ============================================================
+
 def load_all_data():
-    """
-    Ngarko të gjitha të dhënat reference nga Supabase.
-    Thirret një herë në fillim të çdo ekzekutimi.
-    Nëse Stores ose Products mungojnë, procesi ndalon (sys.exit).
-    """
-    global _stores, _products, _warehouses
+    global _stores, _products, _warehouses, _routes, _vehicles, _drivers, _categories
 
     logger.info("📦 Duke ngarkuar të dhënat reference nga Supabase...")
 
@@ -63,50 +58,54 @@ def load_all_data():
         _routes     = supabase.table("routes").select("*").execute().data or []
         _vehicles   = supabase.table("vehicles").select("*").execute().data or []
         _drivers    = supabase.table("drivers").select("*").execute().data or []
-
+        _categories = supabase.table("product_categories").select("*").execute().data or []
     except Exception as e:
-        logger.critical(f"❌ DËSHTIM: Nuk u lidh me Supabase: {e}", exc_info=True)
+        logger.critical(f"❌ Nuk u lidh me Supabase: {e}", exc_info=True)
         sys.exit(1)
 
-    # Validimi i të dhënave kritike
     if not _stores:
-        logger.critical("❌ Tabela 'stores' është bosh ose nuk u arrit.")
+        logger.critical("❌ Tabela 'stores' është bosh.")
         sys.exit(1)
-
     if not _products:
-        logger.critical("❌ Tabela 'products' është bosh ose nuk u arrit.")
+        logger.critical("❌ Tabela 'products' është bosh.")
         sys.exit(1)
-
-    if not _warehouses:
-        logger.warning("⚠️  Tabela 'warehouses' është bosh — purchasing mund të dështojë.")
 
     logger.info(
-        f"✅ U ngarkuan: {len(_stores)} stores | "
-        f"{len(_products)} products | "
-        f"{len(_warehouses)} warehouses"
+        f"✅ Stores={len(_stores)} | Products={len(_products)} | "
+        f"Warehouses={len(_warehouses)} | Categories={len(_categories)}"
     )
 
 
-# ============================================================
-# SIMULATION TICK — CIKLI KRYESOR ORAR
-# ============================================================
+def get_stock_from_db(store_id: str) -> dict:
+    """
+    FIX #2: Merr stokun REAL nga inventory_log për ditën aktuale.
+    Nëse nuk ka të dhëna sot → përdor initialize_stock si fallback.
+    """
+    try:
+        today = datetime.now(TZ).date().isoformat()
+        resp = (
+            supabase.table("inventory_log")
+            .select("product_id, stock_after")
+            .eq("store_id", store_id)
+            .eq("timestamp", today)
+            .order("timestamp", desc=True)
+            .execute()
+        )
+        if resp.data:
+            # Merr stock_after më të fundit për çdo produkt
+            stock = {}
+            for row in resp.data:
+                pid = row["product_id"]
+                if pid not in stock:
+                    stock[pid] = row["stock_after"]
+            logger.info(f"   📦 Stock nga DB: {len(stock)} produkte")
+            return stock
+    except Exception as e:
+        logger.warning(f"⚠️ get_stock_from_db dështoi: {e}")
+    return {}
+
+
 def simulation_tick():
-    """
-    Ekzekuton ciklin e plotë të simulimit për 1 orë.
-
-    Hapat:
-      1. Llogarit orën aktuale në timezone-n e Shqipërisë
-      2. Ngarkon konfigurimin dhe të dhënat reference
-      3. Për çdo store:
-         a. Gjeneron shitjet (transactions + sales_hourly)
-         b. Lexon sales_hourly për të përditësuar stokun
-         c. Ekzekuton inventory update
-         d. Ekzekuton purchasing nëse është ora 08:00
-      4. Ekzekuton warehouse snapshots
-      5. Nëse ndodh gabim kritik, GitHub Actions del e KUQE (exit code 1)
-    """
-
-    # ── Ora aktuale në Tiranë (merr parasysh DST) ────────────
     dt = datetime.now(TZ).replace(minute=0, second=0, microsecond=0)
 
     logger.info("=" * 60)
@@ -114,46 +113,64 @@ def simulation_tick():
     logger.info("=" * 60)
 
     try:
-        # ── A. Ngarko konfigurimin e simulimit ───────────────
+        # ── A. Ngarko konfigurimin ────────────────────────
         try:
             load_simulation_config()
-            logger.info("✅ Simulation config u ngarkua.")
         except Exception as e:
             logger.critical(f"❌ load_simulation_config dështoi: {e}", exc_info=True)
             sys.exit(1)
 
-        # ── B. Ngarko të dhënat reference ────────────────────
+        # ── B. Ngarko të dhënat reference ────────────────
         load_all_data()
 
-        # ── C. Përgatit strukturat ndihmëse ──────────────────
-        _stock_cache = initialize_stock(_stores, _products)
         products_map = {p["product_id"]: p for p in _products}
         wh_id        = _warehouses[0]["warehouse_id"] if _warehouses else None
 
-        # ── D. Loop për çdo store ─────────────────────────────
+        # ── C. FIX #1: MARKETING (ora 07:00) ─────────────
+        # Thirret 1 herë për të gjithë rrjetin, jo për çdo store
+        if dt.hour == 7:
+            logger.info("📣 Duke ekzekutuar Marketing Day...")
+            try:
+                deactivate_expired_campaigns(dt)
+                load_active_campaigns(dt)
+                run_marketing_day(_categories, dt)
+            except Exception as e:
+                logger.warning(f"⚠️ Marketing dështoi: {e}", exc_info=True)
+        else:
+            # Ngarko kampanjat aktive çdo orë (pa gjeneruar të reja)
+            try:
+                load_active_campaigns(dt)
+            except Exception as e:
+                logger.warning(f"⚠️ load_active_campaigns dështoi: {e}")
+
+        # ── D. FIX #3: TRANSPORT (jashtë loop-it të store-ve) ──
+        # Thirret 1 herë për të gjitha rrugët — jo 15 herë
+        active_shipments = []
+        if dt.hour == 6:
+            if _routes and _vehicles and _drivers:
+                try:
+                    logger.info("🚚 Duke nisur flotën e transportit...")
+                    stats = run_transport_day(_routes, _vehicles, _drivers, dt)
+                    active_shipments = [{"status": "dispatched"}] * stats.get("shipments", 0)
+                    logger.info(f"✅ Transport: {stats.get('shipments', 0)} dërgesa")
+                except Exception as e:
+                    logger.warning(f"⚠️ Transport dështoi: {e}", exc_info=True)
+
+        # ── E. LOOP PËR ÇDO STORE ─────────────────────────
         for store in _stores:
             store_id   = store["store_id"]
             store_name = store.get("city", store_id)
 
-            logger.info(f"── Store {store_id} [{store_name}] ──────────────────────")
+            logger.info(f"── Store {store_id} [{store_name}] ──────────────")
 
-            # ── 1. SHITJET ────────────────────────────────────
-            # Gjeneron transaksionet dhe i dërgon në:
-            #   → tabela 'transactions'  (header i faturës)
-            #   → tabela 'sales_hourly'  (detajet e produkteve)
+            # ── 1. SHITJET ────────────────────────────────
             try:
                 run_sales_hour(store, _products, dt)
             except Exception as e:
-                logger.error(
-                    f"❌ run_sales_hour dështoi për {store_id}: {e}",
-                    exc_info=True
-                )
-                # Vazhdojmë me store-in tjetër — nuk ndalet gjithë procesi
+                logger.error(f"❌ run_sales_hour dështoi për {store_id}: {e}", exc_info=True)
                 continue
 
-            # ── 2. LEXO SALES_HOURLY PËR INVENTORY ───────────
-            # Tabela 'transactions' nuk ka product_id — detajet janë në 'sales_hourly'
-            # run_inventory_hour pret: [{"product_id": "...", "quantity": N}, ...]
+            # ── 2. LEXO SALES_HOURLY PËR INVENTORY ───────
             transactions_for_inventory = []
             try:
                 sales_resp = (
@@ -164,118 +181,69 @@ def simulation_tick():
                     .eq("hour", dt.hour)
                     .execute()
                 )
-
-                # Riemëro 'units_sold' → 'quantity' siç e pret run_inventory_hour
                 transactions_for_inventory = [
-                    {
-                        "product_id": row["product_id"],
-                        "quantity":   row["units_sold"]
-                    }
+                    {"product_id": row["product_id"], "quantity": row["units_sold"]}
                     for row in (sales_resp.data or [])
                 ]
-
-                logger.info(
-                    f"   📋 sales_hourly: {len(transactions_for_inventory)} "
-                    f"rreshta për inventory."
-                )
-
             except Exception as e:
-                logger.warning(
-                    f"⚠️  Leximi i sales_hourly dështoi për {store_id}: {e} "
-                    f"— Inventory do të ekzekutohet me listë bosh.",
-                    exc_info=True
-                )
+                logger.warning(f"⚠️ Leximi i sales_hourly dështoi për {store_id}: {e}")
 
-            # ── 3. INVENTARI ──────────────────────────────────
-            # Përditëson stokun bazuar në shitjet e sapokryera
+            # ── 3. INVENTARI ──────────────────────────────
             try:
                 run_inventory_hour(
-                    store,
-                    _products,
-                    products_map,
-                    transactions_for_inventory,
-                    dt
+                    store, _products, products_map,
+                    transactions_for_inventory, dt
                 )
             except Exception as e:
-                logger.warning(
-                    f"⚠️  run_inventory_hour dështoi për {store_id}: {e}",
-                    exc_info=True
-                )
+                logger.warning(f"⚠️ run_inventory_hour dështoi për {store_id}: {e}")
 
-            # ── 4. FURNIZIMI (vetëm ora 08:00) ────────────────
-            # Gjeneron porositë e furnizimit për dyqanin
+            # ── 4. FIX #2: PURCHASING (ora 08:00) ─────────
+            # Merr stokun REAL nga DB, jo nga cache i vjetër
             if dt.hour == 8:
                 if wh_id:
                     try:
-                        run_purchasing(store, _products, _stock_cache, wh_id, dt)
-                        logger.info(f"   🛒 Purchasing u ekzekutua për {store_id}.")
-                    except Exception as e:
-                        logger.warning(
-                            f"⚠️  run_purchasing dështoi për {store_id}: {e}",
-                            exc_info=True
-                        )
-                else:
-                    logger.warning(
-                        f"⚠️  Purchasing anashkaluar për {store_id} "
-                        f"— warehouse_id nuk u gjet."
-                    )
+                        # Merr stock real nga DB
+                        real_stock = get_stock_from_db(store_id)
+                        if not real_stock:
+                            # Fallback: initialize_stock
+                            fallback = initialize_stock([store], _products)
+                            real_stock = fallback.get(store_id, {})
 
-            # ── 4.5. TRANSPORTI (vetëm ora 06:00) ─────────────────
-            # Nis kamionët për shpërndarjen e mëngjesit
-            active_shipments = []
-            if dt.hour == 6:
-                if _routes and _vehicles and _drivers:
-                    try:
-                        logger.info("🚚 Duke nisur flotën e transportit...")
-                        stats = run_transport_day(_routes, _vehicles, _drivers, dt)
-                        # Marrim ID-të ose një listë fiktive për t'ia kaluar magazinës
-                        active_shipments = [{"status": "dispatched"}] * stats.get("shipments", 0)
+                        stock_cache_for_store = {store_id: real_stock}
+                        run_purchasing(store, _products, stock_cache_for_store, wh_id, dt)
                     except Exception as e:
-                        logger.warning(f"⚠️ run_transport_day dështoi: {e}", exc_info=True)
-                else:
-                    logger.warning("⚠️ Transporti u anashkalua — mungojnë të dhënat e rrugëve/mjeteve.")
+                        logger.warning(f"⚠️ Purchasing dështoi për {store_id}: {e}")
 
-        # ── E. WAREHOUSE SNAPSHOTS ────────────────────────────
-        # Regjistron gjendjen e magazinës për këtë orë
+        # ── F. WAREHOUSE SNAPSHOTS ────────────────────────
         try:
             run_warehouse_hour(_warehouses, active_shipments, dt)
-            logger.info("✅ Warehouse snapshots u ekzekutuan.")
         except Exception as e:
-            logger.warning(f"⚠️  run_warehouse_hour dështoi: {e}", exc_info=True)
+            logger.warning(f"⚠️ run_warehouse_hour dështoi: {e}")
 
-        # ── F. PËRFUNDIMI ─────────────────────────────────────
         logger.info("=" * 60)
         logger.info(f"✅ TICK KOMPLETUAR | {dt.strftime('%Y-%m-%d %H:%M')}")
         logger.info("=" * 60)
 
     except Exception as e:
-        # Gabim i papritur kritik — del me exit code 1
-        # GitHub Actions e shfaq si ❌ Failed
-        logger.critical(f"❌ DËSHTIM KRITIK I PAPRITUR: {e}", exc_info=True)
+        logger.critical(f"❌ DËSHTIM KRITIK: {e}", exc_info=True)
         sys.exit(1)
 
 
-# ============================================================
-# ENTRY POINT — GitHub Actions e thërret këtë direkt
-# ============================================================
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Supply Chain Simulation Scheduler")
+    parser = argparse.ArgumentParser()
     parser.add_argument(
         "--job",
         choices=["sales", "daily", "monthly"],
-        required=True,
-        help="Lloji i punës: sales=tick orar | daily=agregim ditor | monthly=agregim mujor"
+        required=True
     )
     args = parser.parse_args()
 
-    # ── JOB: SALES (Tick Orar) ────────────────────────────────
     if args.job == "sales":
-        logger.info("🚀 Duke nisur: Simulation Tick (Orar)...")
+        logger.info("🚀 Duke nisur: Simulation Tick...")
         simulation_tick()
 
-    # ── JOB: DAILY AGGREGATION ────────────────────────────────
     elif args.job == "daily":
         logger.info("📅 Duke nisur: Daily Aggregation...")
         try:
@@ -286,7 +254,6 @@ if __name__ == "__main__":
             logger.critical(f"❌ Daily Aggregation dështoi: {e}", exc_info=True)
             sys.exit(1)
 
-    # ── JOB: MONTHLY AGGREGATION ──────────────────────────────
     elif args.job == "monthly":
         logger.info("📊 Duke nisur: Monthly Aggregation...")
         try:
