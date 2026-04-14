@@ -6,7 +6,6 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.135-green?logo=fastapi)](https://fastapi.tiangolo.com)
 [![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?logo=supabase)](https://supabase.com)
 [![Render](https://img.shields.io/badge/Deploy-Render-46E3B7?logo=render)](https://render.com)
-[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 ---
 
@@ -581,7 +580,7 @@ REZULTAT: 500MB Supabase Free → ~4+ vjet historik
 **Ermir Haxhia**  
 MSc Applied Mathematics — Universiteti i Tiranës  
 
-🌐 [Portfolio](https://ermir-haxhia.vercel.app) 
+🌐 [Portfolio](https://infrequent-network-348.notion.site/Ermir-Haxhia-Data-Analysis-Portfolio-32c61957cde1800ebff6d7c1190170ae) 
 · [LinkedIn](https://www.linkedin.com/in/ermir-haxhia-b988212b5) 
 · [GitHub](https://github.com/ermirhaxhia)
 
