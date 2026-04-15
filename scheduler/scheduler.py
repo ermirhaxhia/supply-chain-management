@@ -1,9 +1,8 @@
 # ============================================================
 # scheduler/scheduler.py
-# VERZIONI FINAL — GitHub Actions + Supabase + Error Handling
-# FIX 1: Marketing thirret çdo ditë ora 07:00
-# FIX 2: Stock cache përditësohet nga DB
-# FIX 3: Transport thirret 1 herë jashtë loop-it
+# FIX: Hiqen orët fikse — përdoret flag "has_run_today"
+# Transport, Marketing, Purchasing ekzekutohen 1 herë/ditë
+# pa u varur nga ora ekzakte e GitHub Actions
 # ============================================================
 
 import sys
@@ -22,7 +21,7 @@ from simulation.inventory_module import initialize_stock, run_inventory_hour
 from simulation.purchasing_module import run_purchasing
 from simulation.warehouse_module import run_warehouse_hour
 from simulation.transport_module import run_transport_day
-from simulation.marketing_module import (      # FIX #1
+from simulation.marketing_module import (
     run_marketing_day,
     load_active_campaigns,
     deactivate_expired_campaigns
@@ -46,10 +45,52 @@ _drivers:    list = []
 _categories: list = []
 
 
-def load_all_data():
-    global _stores, _products, _warehouses, _routes, _vehicles, _drivers, _categories
+# ============================================================
+# FLAG SYSTEM — Has Run Today?
+# ============================================================
+def has_run_today(key: str, today: str) -> bool:
+    """
+    Kontrollon nëse një modul është ekzekutuar sot.
+    Lexon nga simulation_config: last_run_{key} = "YYYY-MM-DD"
+    """
+    try:
+        resp = (
+            supabase.table("simulation_config")
+            .select("config_value")
+            .eq("config_key", f"last_run_{key}")
+            .execute()
+        )
+        if resp.data:
+            return str(resp.data[0]["config_value"]) == today
+        return False
+    except Exception as e:
+        logger.warning(f"⚠️ has_run_today({key}) dështoi: {e}")
+        return False
 
-    logger.info("📦 Duke ngarkuar të dhënat reference nga Supabase...")
+
+def mark_as_run(key: str, today: str):
+    """
+    Shënon që moduli është ekzekutuar sot.
+    Upsert: krijon ose përditëson config_key.
+    """
+    try:
+        supabase.table("simulation_config").upsert({
+            "config_key":   f"last_run_{key}",
+            "config_value": today
+        }).execute()
+        logger.info(f"✅ Flag u vendos: last_run_{key} = {today}")
+    except Exception as e:
+        logger.warning(f"⚠️ mark_as_run({key}) dështoi: {e}")
+
+
+# ============================================================
+# NGARKIMI I TË DHËNAVE REFERENCE
+# ============================================================
+def load_all_data():
+    global _stores, _products, _warehouses, _routes
+    global _vehicles, _drivers, _categories
+
+    logger.info("📦 Duke ngarkuar të dhënat reference...")
 
     try:
         _stores     = supabase.table("stores").select("*").execute().data or []
@@ -63,11 +104,8 @@ def load_all_data():
         logger.critical(f"❌ Nuk u lidh me Supabase: {e}", exc_info=True)
         sys.exit(1)
 
-    if not _stores:
-        logger.critical("❌ Tabela 'stores' është bosh.")
-        sys.exit(1)
-    if not _products:
-        logger.critical("❌ Tabela 'products' është bosh.")
+    if not _stores or not _products:
+        logger.critical("❌ Stores ose Products mungojnë.")
         sys.exit(1)
 
     logger.info(
@@ -76,10 +114,13 @@ def load_all_data():
     )
 
 
-def get_stock_from_db(store_id: str) -> dict:
+# ============================================================
+# STOCK I VËRTETË NGA DB
+# ============================================================
+def get_real_stock(store_id: str, products: list) -> dict:
     """
-    FIX #2: Merr stokun REAL nga inventory_log për ditën aktuale.
-    Nëse nuk ka të dhëna sot → përdor initialize_stock si fallback.
+    Merr stokun real nga inventory_log për ditën aktuale.
+    Fallback: initialize_stock nëse nuk ka të dhëna.
     """
     try:
         today = datetime.now(TZ).date().isoformat()
@@ -87,141 +128,140 @@ def get_stock_from_db(store_id: str) -> dict:
             supabase.table("inventory_log")
             .select("product_id, stock_after")
             .eq("store_id", store_id)
-            .eq("timestamp", today)
+            .gte("timestamp", f"{today}T00:00:00")
             .order("timestamp", desc=True)
             .execute()
         )
         if resp.data:
-            # Merr stock_after më të fundit për çdo produkt
             stock = {}
             for row in resp.data:
                 pid = row["product_id"]
                 if pid not in stock:
                     stock[pid] = row["stock_after"]
-            logger.info(f"   📦 Stock nga DB: {len(stock)} produkte")
-            return stock
+            if stock:
+                logger.info(f"   📦 Stock real nga DB: {len(stock)} produkte")
+                return stock
     except Exception as e:
-        logger.warning(f"⚠️ get_stock_from_db dështoi: {e}")
-    return {}
+        logger.warning(f"⚠️ get_real_stock dështoi: {e}")
+
+    # Fallback
+    fallback = initialize_stock([{"store_id": store_id}], products)
+    return fallback.get(store_id, {})
 
 
+# ============================================================
+# SIMULATION TICK
+# ============================================================
 def simulation_tick():
-    dt = datetime.now(TZ).replace(minute=0, second=0, microsecond=0)
+    dt    = datetime.now(TZ).replace(minute=0, second=0, microsecond=0)
+    today = dt.date().isoformat()
 
     logger.info("=" * 60)
-    logger.info(f"🔄 SIMULATION TICK | {dt.strftime('%Y-%m-%d %H:%M')} (Tiranë)")
+    logger.info(f"🔄 TICK | {dt.strftime('%Y-%m-%d %H:%M')} ALB | UTC: {datetime.utcnow().strftime('%H:%M')}")
     logger.info("=" * 60)
 
     try:
-        # ── A. Ngarko konfigurimin ────────────────────────
-        try:
-            load_simulation_config()
-        except Exception as e:
-            logger.critical(f"❌ load_simulation_config dështoi: {e}", exc_info=True)
-            sys.exit(1)
-
-        # ── B. Ngarko të dhënat reference ────────────────
+        load_simulation_config()
         load_all_data()
 
         products_map = {p["product_id"]: p for p in _products}
         wh_id        = _warehouses[0]["warehouse_id"] if _warehouses else None
 
-        # ── C. FIX #1: MARKETING (ora 07:00) ─────────────
-        # Thirret 1 herë për të gjithë rrjetin, jo për çdo store
-        if dt.hour == 7:
-            logger.info("📣 Duke ekzekutuar Marketing Day...")
+        # ── MARKETING — 1 herë/ditë ──────────────────────
+        # Ekzekutohet herën e parë që thirret (orën e parë të ditës)
+        # Nuk pret orën 07:00 — ekzekutohet sapo GitHub Actions fillon
+        if not has_run_today("marketing", today):
+            logger.info("📣 Duke ekzekutuar Marketing (1 herë sot)...")
             try:
                 deactivate_expired_campaigns(dt)
                 load_active_campaigns(dt)
                 run_marketing_day(_categories, dt)
+                mark_as_run("marketing", today)
             except Exception as e:
                 logger.warning(f"⚠️ Marketing dështoi: {e}", exc_info=True)
         else:
-            # Ngarko kampanjat aktive çdo orë (pa gjeneruar të reja)
-            try:
-                load_active_campaigns(dt)
-            except Exception as e:
-                logger.warning(f"⚠️ load_active_campaigns dështoi: {e}")
+            load_active_campaigns(dt)
 
-        # ── D. FIX #3: TRANSPORT (jashtë loop-it të store-ve) ──
-        # Thirret 1 herë për të gjitha rrugët — jo 15 herë
+        # ── TRANSPORT — 1 herë/ditë ───────────────────────
+        # Ekzekutohet herën e parë të ditës pa kufi orash
         active_shipments = []
-        if dt.hour == 6:
+        if not has_run_today("transport", today):
             if _routes and _vehicles and _drivers:
+                logger.info("🚚 Duke nisur flotën (1 herë sot)...")
                 try:
-                    logger.info("🚚 Duke nisur flotën e transportit...")
                     stats = run_transport_day(_routes, _vehicles, _drivers, dt)
                     active_shipments = [{"status": "dispatched"}] * stats.get("shipments", 0)
-                    logger.info(f"✅ Transport: {stats.get('shipments', 0)} dërgesa")
+                    mark_as_run("transport", today)
+                    logger.info(f"✅ Transport: {stats.get('shipments',0)} dërgesa")
                 except Exception as e:
                     logger.warning(f"⚠️ Transport dështoi: {e}", exc_info=True)
+        else:
+            logger.info("⏭️  Transport: tashmë ekzekutuar sot")
 
-        # ── E. LOOP PËR ÇDO STORE ─────────────────────────
+        # ── LOOP PËR ÇDO STORE ───────────────────────────
         for store in _stores:
             store_id   = store["store_id"]
             store_name = store.get("city", store_id)
 
-            logger.info(f"── Store {store_id} [{store_name}] ──────────────")
+            logger.info(f"── {store_id} [{store_name}] ─────────────────")
 
-            # ── 1. SHITJET ────────────────────────────────
+            # 1. SHITJET
             try:
                 run_sales_hour(store, _products, dt)
             except Exception as e:
-                logger.error(f"❌ run_sales_hour dështoi për {store_id}: {e}", exc_info=True)
+                logger.error(f"❌ Sales dështoi {store_id}: {e}", exc_info=True)
                 continue
 
-            # ── 2. LEXO SALES_HOURLY PËR INVENTORY ───────
-            transactions_for_inventory = []
+            # 2. LEXO SALES_HOURLY
+            transactions_for_inv = []
             try:
-                sales_resp = (
+                resp = (
                     supabase.table("sales_hourly")
                     .select("product_id, units_sold")
                     .eq("store_id", store_id)
-                    .eq("date", dt.date().isoformat())
-                    .eq("hour", dt.hour)
+                    .eq("date",     dt.date().isoformat())
+                    .eq("hour",     dt.hour)
                     .execute()
                 )
-                transactions_for_inventory = [
-                    {"product_id": row["product_id"], "quantity": row["units_sold"]}
-                    for row in (sales_resp.data or [])
+                transactions_for_inv = [
+                    {"product_id": r["product_id"], "quantity": r["units_sold"]}
+                    for r in (resp.data or [])
                 ]
             except Exception as e:
-                logger.warning(f"⚠️ Leximi i sales_hourly dështoi për {store_id}: {e}")
+                logger.warning(f"⚠️ sales_hourly lexim dështoi {store_id}: {e}")
 
-            # ── 3. INVENTARI ──────────────────────────────
+            # 3. INVENTARI
             try:
                 run_inventory_hour(
                     store, _products, products_map,
-                    transactions_for_inventory, dt
+                    transactions_for_inv, dt
                 )
             except Exception as e:
-                logger.warning(f"⚠️ run_inventory_hour dështoi për {store_id}: {e}")
+                logger.warning(f"⚠️ Inventory dështoi {store_id}: {e}")
 
-            # ── 4. FIX #2: PURCHASING (ora 08:00) ─────────
-            # Merr stokun REAL nga DB, jo nga cache i vjetër
-            if dt.hour == 8:
+            # 4. PURCHASING — 1 herë/ditë për çdo store
+            # Flag unik për çdo store
+            purchasing_key = f"purchasing_{store_id}"
+            if not has_run_today(purchasing_key, today):
                 if wh_id:
                     try:
-                        # Merr stock real nga DB
-                        real_stock = get_stock_from_db(store_id)
-                        if not real_stock:
-                            # Fallback: initialize_stock
-                            fallback = initialize_stock([store], _products)
-                            real_stock = fallback.get(store_id, {})
-
-                        stock_cache_for_store = {store_id: real_stock}
-                        run_purchasing(store, _products, stock_cache_for_store, wh_id, dt)
+                        real_stock   = get_real_stock(store_id, _products)
+                        stock_cache  = {store_id: real_stock}
+                        run_purchasing(store, _products, stock_cache, wh_id, dt)
+                        mark_as_run(purchasing_key, today)
                     except Exception as e:
-                        logger.warning(f"⚠️ Purchasing dështoi për {store_id}: {e}")
+                        logger.warning(f"⚠️ Purchasing dështoi {store_id}: {e}")
+            else:
+                logger.info(f"   ⏭️  Purchasing {store_id}: ekzekutuar sot")
 
-        # ── F. WAREHOUSE SNAPSHOTS ────────────────────────
+        # ── WAREHOUSE SNAPSHOTS ──────────────────────────
         try:
             run_warehouse_hour(_warehouses, active_shipments, dt)
         except Exception as e:
-            logger.warning(f"⚠️ run_warehouse_hour dështoi: {e}")
+            logger.warning(f"⚠️ Warehouse dështoi: {e}")
 
         logger.info("=" * 60)
-        logger.info(f"✅ TICK KOMPLETUAR | {dt.strftime('%Y-%m-%d %H:%M')}")
+        logger.info(f"✅ TICK KOMPLETUAR | {dt.strftime('%H:%M')} ALB")
         logger.info("=" * 60)
 
     except Exception as e:
@@ -229,37 +269,31 @@ def simulation_tick():
         sys.exit(1)
 
 
+# ============================================================
+# ENTRY POINT
+# ============================================================
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--job",
-        choices=["sales", "daily", "monthly"],
-        required=True
-    )
+    parser.add_argument("--job", choices=["sales", "daily", "monthly"], required=True)
     args = parser.parse_args()
 
     if args.job == "sales":
-        logger.info("🚀 Duke nisur: Simulation Tick...")
         simulation_tick()
 
     elif args.job == "daily":
-        logger.info("📅 Duke nisur: Daily Aggregation...")
         try:
             from aggregation.daily_aggregator import run_daily_aggregation
             run_daily_aggregation(datetime.now(TZ))
-            logger.info("✅ Daily Aggregation përfundoi.")
         except Exception as e:
-            logger.critical(f"❌ Daily Aggregation dështoi: {e}", exc_info=True)
+            logger.critical(f"❌ Daily dështoi: {e}", exc_info=True)
             sys.exit(1)
 
     elif args.job == "monthly":
-        logger.info("📊 Duke nisur: Monthly Aggregation...")
         try:
             from aggregation.monthly_aggregator import run_monthly_aggregation
             run_monthly_aggregation(datetime.now(TZ))
-            logger.info("✅ Monthly Aggregation përfundoi.")
         except Exception as e:
-            logger.critical(f"❌ Monthly Aggregation dështoi: {e}", exc_info=True)
+            logger.critical(f"❌ Monthly dështoi: {e}", exc_info=True)
             sys.exit(1)
