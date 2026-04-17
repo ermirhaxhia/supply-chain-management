@@ -54,17 +54,11 @@ def has_run_today(key: str, today: str) -> bool:
     Lexon nga simulation_config: last_run_{key} = "YYYY-MM-DD"
     """
     try:
-        resp = (
-            supabase.table("simulation_config")
-            .select("config_value")
-            .eq("config_key", f"last_run_{key}")
-            .execute()
-        )
+        resp = supabase.table("run_log").select("last_run").eq("key", key).execute()
         if resp.data:
-            return str(resp.data[0]["config_value"]) == today
+            return str(resp.data[0]["last_run"]) == today
         return False
-    except Exception as e:
-        logger.warning(f"⚠️ has_run_today({key}) dështoi: {e}")
+    except:
         return False
 
 
@@ -74,13 +68,9 @@ def mark_as_run(key: str, today: str):
     Upsert: krijon ose përditëson config_key.
     """
     try:
-        supabase.table("simulation_config").upsert({
-            "config_key":   f"last_run_{key}",
-            "config_value": today
-        }).execute()
-        logger.info(f"✅ Flag u vendos: last_run_{key} = {today}")
+        supabase.table("run_log").update({"last_run": today}).eq("key", key).execute()
     except Exception as e:
-        logger.warning(f"⚠️ mark_as_run({key}) dështoi: {e}")
+        logger.warning(f"⚠️ mark_as_run dështoi: {e}")
 
 
 # ============================================================
