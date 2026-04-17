@@ -151,8 +151,6 @@ def run_purchasing(
     Returns:
         dict : statistikat e porosive
     """
-    if dt.hour != 8:
-        return {"orders_created": 0, "total_cost": 0}
 
     store_id = store["store_id"]
 

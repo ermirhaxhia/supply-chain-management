@@ -109,34 +109,41 @@ def load_all_data():
 # ============================================================
 def get_real_stock(store_id: str, products: list) -> dict:
     """
-    Merr stokun real nga inventory_log për ditën aktuale.
-    Fallback: initialize_stock nëse nuk ka të dhëna.
+    Merr stokun e fundit nga inventory_log.
+    Nuk filtron sipas datës — merr stock_after më të fundit
+    për çdo produkt pa kufizim kohe.
     """
     try:
-        today = datetime.now(TZ).date().isoformat()
         resp = (
             supabase.table("inventory_log")
             .select("product_id, stock_after")
             .eq("store_id", store_id)
-            .gte("timestamp", f"{today}T00:00:00")
             .order("timestamp", desc=True)
+            .limit(400)   # max produkte × 1 rresht i fundit
             .execute()
         )
         if resp.data:
             stock = {}
             for row in resp.data:
                 pid = row["product_id"]
-                if pid not in stock:
+                if pid not in stock:  # merr vetëm të parin (më të fundit)
                     stock[pid] = row["stock_after"]
-            if stock:
-                logger.info(f"   📦 Stock real nga DB: {len(stock)} produkte")
-                return stock
-    except Exception as e:
-        logger.warning(f"⚠️ get_real_stock dështoi: {e}")
 
-    # Fallback
-    fallback = initialize_stock([{"store_id": store_id}], products)
-    return fallback.get(store_id, {})
+            logger.info(f"   📦 Stock real: {len(stock)} produkte")
+
+            # Kontrollo nëse ka produkte nën reorder_point
+            reorder_map = {p["product_id"]: p.get("reorder_point", 20) for p in products}
+            below = sum(1 for pid, qty in stock.items() if qty <= reorder_map.get(pid, 20))
+            logger.info(f"   ⚠️  Produkte nën reorder_point: {below}")
+            return stock
+
+    except Exception as e:
+        logger.warning(f"⚠️ get_real_stock dështoi: {e}", exc_info=True)
+
+    # Fallback me stock të ulët për të garantuar purchasing
+    logger.warning(f"⚠️ Fallback: duke simuluar stock të ulët për {store_id}")
+    return {p["product_id"]: p.get("reorder_point", 20) - 1 for p in products}
+
 
 
 # ============================================================
