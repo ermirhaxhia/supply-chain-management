@@ -169,7 +169,6 @@ def simulation_tick():
         load_all_data()
 
         products_map = {p["product_id"]: p for p in _products}
-        wh_id        = _warehouses[0]["warehouse_id"] if _warehouses else None
 
         # ── MARKETING — 1 herë/ditë ──────────────────────
         # Ekzekutohet herën e parë që thirret (orën e parë të ditës)
@@ -201,6 +200,15 @@ def simulation_tick():
                     logger.warning(f"⚠️ Transport dështoi: {e}", exc_info=True)
         else:
             logger.info("⏭️  Transport: tashmë ekzekutuar sot")
+
+        # ── Krijo map store → warehouse ──────────────────
+        store_to_warehouse = {}
+        for route in _routes:
+            sid = route["store_id"]
+            wid = route["warehouse_id"]
+            if sid not in store_to_warehouse:
+                store_to_warehouse[sid] = wid
+        logger.info(f"🗺️ Store→Warehouse: {store_to_warehouse}")
 
         # ── LOOP PËR ÇDO STORE ───────────────────────────
         for store in _stores:
@@ -245,6 +253,11 @@ def simulation_tick():
 
             # 4. PURCHASING — 1 herë/ditë për çdo store
             # Flag unik për çdo store
+            purchasing_key = f"purchasing_{store_id}"
+            wh_id = store_to_warehouse.get(
+                store_id,
+                _warehouses[0]["warehouse_id"] if _warehouses else None
+            )
             purchasing_key = f"purchasing_{store_id}"
             if not has_run_today(purchasing_key, today):
                 if wh_id:
