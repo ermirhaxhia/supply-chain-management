@@ -222,22 +222,52 @@ def calculate_campaign_roi(
         return {}
 
 
+def check_upcoming_holidays(dt: datetime, horizon_days: int = 3) -> list:
+    """
+    Kontrollo nëse ka festa brenda horizon_days ditëve.
+    Kthen listën e festave të ardhshme.
+    """
+    try:
+        today     = dt.date().isoformat()
+        future    = (dt.date() + timedelta(days=horizon_days)).isoformat()
+
+        resp = (
+            supabase.table("holidays")
+            .select("*")
+            .gte("date", today)
+            .lte("date", future)
+            .execute()
+        )
+        holidays = resp.data or []
+
+        if holidays:
+            for h in holidays:
+                logger.info(
+                    f"🎉 Festë e ardhshme: {h['name']} "
+                    f"më {h['date']} ({(timedelta(days=1)).days} ditë)"
+                )
+        return holidays
+
+    except Exception as e:
+        logger.error(f"❌ check_upcoming_holidays dështoi: {e}")
+        return []
+
+
+
 # ============================================================
 # RUN MARKETING — Ekzekuto 1 herë në ditë ora 07:00
 # ============================================================
 def run_marketing_day(categories: list, dt: datetime) -> dict:
     """
     Logjika e marketingut për 1 ditë:
-    1. Deaktivizo kampanjat e mbaruara  ← FIX #1
+    1. Deaktivizo kampanjat e mbaruara
     2. Ngarko kampanjat aktive
-    3. Probabilitet për kampanjë të re
+    3. Kontrollo festa të ardhshme (3 ditë)
+    4. Gjenero kampanjë feste ose normale
     """
-    if dt.hour != 7:
-        return {"campaigns_active": len(_active_campaigns)}
-
     logger.info(f"📣 Marketing Day | {dt.strftime('%Y-%m-%d')}")
 
-    # FIX #1: Kontrollo kampanjat e mbaruara PARA se të gjenerojmë të reja
+    # Kontrollo kampanjat e mbaruara
     deactivate_expired_campaigns(dt)
 
     # Rifresho kampanjat aktive
@@ -250,11 +280,34 @@ def run_marketing_day(categories: list, dt: datetime) -> dict:
         promo_from_config = get_config("promo_active", 0.0)
 
         if promo_from_config == 1.0:
-            logger.info("📣 Kampanjë tashmë aktive nga simulation_config")
+            logger.info("📣 Kampanjë tashmë aktive — skip")
 
-        elif np.random.random() < CAMPAIGN_ACTIVE_PROBABILITY:
-            new_campaign = generate_campaign(categories, dt)
+        else:
+            # ── Kontrollo festa të ardhshme ──────────────
+            upcoming_holidays = check_upcoming_holidays(dt, horizon_days=3)
 
+            if upcoming_holidays:
+                # Festa e parë e gjetur → kampanjë e dedikuar
+                holiday  = upcoming_holidays[0]
+                cat_ids  = holiday.get("category_ids", "").split(",")
+                cat_ids  = [c.strip() for c in cat_ids if c.strip()]
+
+                # Filtro kategoritë e festës
+                target_cats = [c for c in categories if c["category_id"] in cat_ids]
+                if not target_cats:
+                    target_cats = categories  # fallback: të gjitha
+
+                logger.info(
+                    f"🎉 Festë e ardhshme: {holiday['name']} "
+                    f"më {holiday['date']} — duke gjeneruar kampanjë!"
+                )
+                new_campaign = generate_holiday_campaign(target_cats, dt, holiday)
+
+            elif np.random.random() < CAMPAIGN_ACTIVE_PROBABILITY:
+                # Asnjë festë → kampanjë normale me probabilitet
+                new_campaign = generate_campaign(categories, dt)
+
+            # ── INSERT kampanjën ──────────────────────────
             if new_campaign:
                 response = supabase.table("campaigns").insert(new_campaign).execute()
                 if response.data:
@@ -270,8 +323,6 @@ def run_marketing_day(categories: list, dt: datetime) -> dict:
                         {"config_value": 1.0}
                     ).eq("config_key", "promo_active").execute()
 
-                    # FIX #2: discount_pct ruhet si % e plotë (p.sh. 25.0 jo 0.25)
-                    # sales_module e aplikon: price * (discount_pct / 100)
                     supabase.table("simulation_config").update(
                         {"config_value": float(new_campaign["discount_pct"])}
                     ).eq("config_key", "promo_discount_pct").execute()
@@ -280,7 +331,6 @@ def run_marketing_day(categories: list, dt: datetime) -> dict:
                         {"config_value": new_campaign["revenue_lift_pct"] / 100}
                     ).eq("config_key", "promo_demand_lift").execute()
 
-                    # Rifresho cache me kampanjën e re
                     _active_campaigns.append(new_campaign)
 
     except Exception as e:
@@ -294,6 +344,39 @@ def run_marketing_day(categories: list, dt: datetime) -> dict:
 
     logger.info(f"  ✅ Aktive={len(active)} | Të reja={inserted}")
     return stats
+
+
+def generate_holiday_campaign(
+    categories: list,
+    dt: datetime,
+    holiday: dict
+) -> dict | None:
+    """
+    Kampanjë e personalizuar për festë.
+    Zbritje më të larta + kohëzgjatje e lidhur me festën.
+    """
+    category  = np.random.choice(categories)
+    
+    # Festa → zbritje më të larta
+    discount_pct = float(np.random.choice([15, 20, 25, 30]))
+    
+    # Kampanja fillon sot, mbaron ditën e festës
+    holiday_date = datetime.strptime(holiday["date"], "%Y-%m-%d").date()
+    duration     = (holiday_date - dt.date()).days + 1
+
+    return {
+        "campaign_id":      f"CMP-{uuid.uuid4().hex[:8].upper()}",
+        "campaign_name":    f"Ofertë {holiday['name']} {dt.strftime('%Y')}",
+        "type":             "Holiday",
+        "start_date":       dt.date().isoformat(),
+        "end_date":         holiday_date.isoformat(),
+        "category_id":      category["category_id"],
+        "discount_pct":     discount_pct,
+        "cost":             round(np.random.uniform(100000, 300000), 2),
+        "revenue_lift_pct": round(np.random.uniform(20, 50), 2),
+    }
+
+
 
 
 # ============================================================
