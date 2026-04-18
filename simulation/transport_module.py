@@ -158,8 +158,6 @@ def run_transport_day(
     Returns:
         dict : statistikat e transportit
     """
-    if dt.hour not in [6, 14]:
-        return {"shipments": 0, "total_cost": 0}
 
     logger.info(f"🚛 Transport Run | {dt.strftime('%Y-%m-%d %H:%M')}")
 

@@ -118,7 +118,7 @@ SUPPLIER_DEFECT_STD    = 0.01       # ±1% devijim defect rate
 # ============================================================
 # MARKETING
 # ============================================================
-CAMPAIGN_ACTIVE_PROBABILITY = 0.10  # 10% mundësi kampanje aktive/ditë
+CAMPAIGN_ACTIVE_PROBABILITY = 0.35  # 10% mundësi kampanje aktive/ditë
 CAMPAIGN_DURATION_DAYS      = {
     "min": 3,
     "max": 14,

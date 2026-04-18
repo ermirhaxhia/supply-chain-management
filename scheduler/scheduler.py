@@ -136,6 +136,13 @@ def get_real_stock(store_id: str, products: list) -> dict:
             below = sum(1 for pid, qty in stock.items() if qty <= reorder_map.get(pid, 20))
             logger.info(f"   ⚠️  Produkte nën reorder_point: {below}")
             return stock
+        
+        # Plotëso produktet që mungojnë me max_stock
+        for p in products:
+            pid = p["product_id"]
+            if pid not in stock:
+                stock[pid] = p.get("max_stock", 999)  # ← FIX
+        return stock
 
     except Exception as e:
         logger.warning(f"⚠️ get_real_stock dështoi: {e}", exc_info=True)
