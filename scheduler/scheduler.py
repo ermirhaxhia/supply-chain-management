@@ -170,6 +170,24 @@ def simulation_tick():
 
         products_map = {p["product_id"]: p for p in _products}
 
+
+        # ── INICIALIZO STOKUN NË MEMORIE ─────────────────────
+        # GitHub Actions = proces i ri çdo orë → cache bosh
+        # Duhet të popullohet para inventory_module
+        from simulation.inventory_module import initialize_stock, set_stock_level
+
+        logger.info("📦 Duke inicializuar stock cache...")
+        initialize_stock(_stores, _products)
+
+        # Përditëso me vlera reale nga DB për çdo store
+        for store in _stores:
+            real_stock = get_real_stock(store["store_id"], _products)
+            for pid, qty in real_stock.items():
+                set_stock_level(store["store_id"], pid, qty)
+
+        logger.info("✅ Stock cache i plotësuar nga DB")
+
+
         # ── MARKETING — 1 herë/ditë ──────────────────────
         # Ekzekutohet herën e parë që thirret (orën e parë të ditës)
         # Nuk pret orën 07:00 — ekzekutohet sapo GitHub Actions fillon
