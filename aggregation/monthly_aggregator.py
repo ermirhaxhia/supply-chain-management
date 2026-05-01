@@ -57,6 +57,65 @@ def fetch_all_rows(table: str, filters: dict) -> list:
 
 
 # ============================================================
+# HELPER: Batch Delete (shmang timeout-in e Supabase Free Tier)
+# ============================================================
+def batch_delete(table: str, date_field: str, date_start: str, date_end: str, batch_size: int = 500, sleep_sec: int = 2):
+    """
+    Fshin rreshtat e një tabele batch-për-batch deri sa të mbeten 0.
+    - table      : emri i tabelës në Supabase
+    - date_field : fusha e filtrimit ('timestamp' ose 'date')
+    - date_start : vlera gte  p.sh. '2026-04-01' ose '2026-04-01T00:00:00'
+    - date_end   : vlera lte  p.sh. '2026-04-30' ose '2026-04-30T23:59:59'
+    - batch_size : sa ID fshihen për çdo iteracion (500 = i sigurt)
+    - sleep_sec  : sekonda pushim mes batch-eve
+    """
+    logger.info(f"🗑️ [{table}] Fshirje batch-për-batch ({date_field}: {date_start} → {date_end})...")
+    batch_num     = 0
+    total_deleted = 0
+
+    while True:
+        # 1. Sa rreshta kanë mbetur?
+        count_resp = supabase.table(table) \
+            .select("id", count="exact") \
+            .gte(date_field, date_start) \
+            .lte(date_field, date_end) \
+            .execute()
+        remaining = count_resp.count or 0
+
+        if remaining == 0:
+            logger.info(f"✅ [{table}] Fshirja kompletuar! {total_deleted} rreshta në {batch_num} batch")
+            break
+
+        logger.info(f"   🔄 [{table}] Batch {batch_num + 1}: {remaining} rreshta mbetur...")
+
+        # 2. Merr batch_size ID specifikë
+        fetch_resp = supabase.table(table) \
+            .select("id") \
+            .gte(date_field, date_start) \
+            .lte(date_field, date_end) \
+            .limit(batch_size) \
+            .execute()
+        ids = [r["id"] for r in (fetch_resp.data or [])]
+
+        if not ids:
+            logger.warning(f"⚠️ [{table}] Count > 0 por nuk u gjetën ID — ndalim")
+            break
+
+        # 3. DELETE WHERE id IN (ids) — shpejt dhe pa risk timeout
+        supabase.table(table) \
+            .delete() \
+            .in_("id", ids) \
+            .execute()
+
+        batch_num     += 1
+        total_deleted += len(ids)
+        logger.info(f"   ✅ [{table}] Batch {batch_num}: fshirë {len(ids)} | Total: {total_deleted}")
+
+        # 4. Pushim para batch-it tjetër
+        time.sleep(sleep_sec)
+
+
+# ============================================================
 # TRANSACTIONS: transactions → transactions_monthly → DELETE
 # ============================================================
 def aggregate_transactions_monthly(year: int, month: int, month_start: str, month_end: str):
@@ -157,54 +216,12 @@ def aggregate_transactions_monthly(year: int, month: int, month_start: str, mont
     logger.info(f"✅ transactions_monthly: {len(txn_monthly_rows)} rreshta")
 
     # DELETE transactions të muajit — batch-për-batch deri sa të mbeten 0
-    logger.info(f"🗑️ Duke fshirë {len(txn_data)} transaksione batch-për-batch...")
-    ts_start = f"{month_start}T00:00:00"
-    ts_end   = f"{month_end}T23:59:59"
-    batch_num     = 0
-    total_deleted = 0
-    BATCH_SIZE    = 500   # i sigurt brenda timeout-it të Supabase Free Tier
-    SLEEP_SEC     = 2     # pushim mes batch-eve
-
-    while True:
-        # 1. Kontrollo sa kanë mbetur
-        count_resp = supabase.table("transactions") \
-            .select("id", count="exact") \
-            .gte("timestamp", ts_start) \
-            .lte("timestamp", ts_end) \
-            .execute()
-        remaining = count_resp.count or 0
-
-        if remaining == 0:
-            logger.info(f"✅ Fshirja kompletuar! {total_deleted} rreshta në {batch_num} batch")
-            break
-
-        logger.info(f"   🔄 Batch {batch_num + 1}: {remaining} rreshta mbetur...")
-
-        # 2. Merr 500 ID specifikë
-        fetch_resp = supabase.table("transactions") \
-            .select("id") \
-            .gte("timestamp", ts_start) \
-            .lte("timestamp", ts_end) \
-            .limit(BATCH_SIZE) \
-            .execute()
-        ids = [r["id"] for r in (fetch_resp.data or [])]
-
-        if not ids:
-            logger.warning("⚠️ Count > 0 por nuk u gjetën ID — ndalim")
-            break
-
-        # 3. Fshi vetëm ato ID (shpejt dhe i sigurt)
-        supabase.table("transactions") \
-            .delete() \
-            .in_("id", ids) \
-            .execute()
-
-        batch_num     += 1
-        total_deleted += len(ids)
-        logger.info(f"   ✅ Batch {batch_num}: fshirë {len(ids)} | Total deri tani: {total_deleted}")
-
-        # 4. Pauzo para batch-it tjetër
-        time.sleep(SLEEP_SEC)
+    batch_delete(
+        table      = "transactions",
+        date_field = "timestamp",
+        date_start = f"{month_start}T00:00:00",
+        date_end   = f"{month_end}T23:59:59",
+    )
 
 
 # ============================================================
@@ -322,8 +339,12 @@ def aggregate_sales_monthly(year: int, month: int, month_start: str, month_end: 
         supabase.table("kpi_monthly").insert(kpi_rows).execute()
         logger.info(f"✅ kpi_monthly: {len(kpi_rows)} dyqane")
 
-    supabase.table("sales_daily").delete().gte("date", month_start).lte("date", month_end).execute()
-    logger.info(f"🧹 sales_daily pastruar për {year}-{month:02d}")
+    batch_delete(
+        table      = "sales_daily",
+        date_field = "date",
+        date_start = month_start,
+        date_end   = month_end,
+    )
 
     return stores_found
 
@@ -385,8 +406,12 @@ def aggregate_inventory_monthly(year: int, month: int, month_start: str, month_e
 
     logger.info(f"✅ inventory_monthly: {total_inserted} rreshta për {len(stores_found)} dyqane")
 
-    supabase.table("inventory_daily").delete().gte("date", month_start).lte("date", month_end).execute()
-    logger.info(f"🧹 inventory_daily pastruar për {year}-{month:02d}")
+    batch_delete(
+        table      = "inventory_daily",
+        date_field = "date",
+        date_start = month_start,
+        date_end   = month_end,
+    )
 
 
 # ============================================================
