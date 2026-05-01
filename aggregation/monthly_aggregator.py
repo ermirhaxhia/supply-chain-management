@@ -59,7 +59,7 @@ def fetch_all_rows(table: str, filters: dict) -> list:
 # ============================================================
 # HELPER: Batch Delete (shmang timeout-in e Supabase Free Tier)
 # ============================================================
-def batch_delete(table: str, date_field: str, date_start: str, date_end: str, batch_size: int = 500, sleep_sec: int = 2):
+def batch_delete(table: str, date_field: str, date_start: str, date_end: str, batch_size: int = 1500, sleep_sec: int = 2):
     """
     Fshin rreshtat e një tabele batch-për-batch deri sa të mbeten 0.
     - table      : emri i tabelës në Supabase
