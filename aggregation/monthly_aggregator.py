@@ -435,24 +435,33 @@ def run_monthly_aggregation(dt: datetime = None):
         f"UTC: {datetime.utcnow().strftime('%d/%m %H:%M')}"
     )
 
+    errors = []
+
+    # ── 1. SALES ─────────────────────────────────────────────
     try:
-        # Rendi është i rëndësishëm:
-        # 1. Transactions → transactions_monthly (kpi_monthly e lexon)
-        # 2. Sales → sales_monthly + kpi_monthly
-        # 3. Inventory → inventory_monthly
-        aggregate_transactions_monthly(year, month, month_start, month_end)
         aggregate_sales_monthly(year, month, month_start, month_end)
-        aggregate_inventory_monthly(year, month, month_start, month_end)
-
-        logger.info(f"🎉 Agregimi mujor kompletuar për {year}-{month:02d}")
-        logger.info(f"📊 Rezultati:")
-        logger.info(f"   transactions     → transactions_monthly (15 rreshta)")
-        logger.info(f"   sales_daily      → sales_monthly + kpi_monthly")
-        logger.info(f"   inventory_daily  → inventory_monthly")
-
     except Exception as e:
-        logger.error(f"❌ Gabim kritik gjatë agregimit mujor: {e}")
-        raise
+        logger.error(f"❌ [sales] Dështoi: {e}")
+        errors.append(f"sales: {e}")
+
+    # ── 2. INVENTORY ─────────────────────────────────────────
+    try:
+        aggregate_inventory_monthly(year, month, month_start, month_end)
+    except Exception as e:
+        logger.error(f"❌ [inventory] Dështoi: {e}")
+        errors.append(f"inventory: {e}")
+
+    # ── REZULTATI FINAL ──────────────────────────────────────
+    if errors:
+        logger.error(f"❌ Agregimi mujor përfundoi me {len(errors)} gabim/e:")
+        for err in errors:
+            logger.error(f"   • {err}")
+        raise RuntimeError(f"Monthly aggregation errors: {errors}")
+    else:
+        logger.info(f"🎉 Agregimi mujor kompletuar për {year}-{month:02d}")
+        logger.info(f"   transactions  → transactions_monthly ✅")
+        logger.info(f"   sales_daily   → sales_monthly + kpi_monthly ✅")
+        logger.info(f"   inventory_daily → inventory_monthly ✅")
 
 
 if __name__ == "__main__":
