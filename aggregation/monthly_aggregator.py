@@ -10,6 +10,7 @@ import sys
 import os
 import logging
 import calendar
+import time
 from datetime import datetime
 import pytz
 
@@ -155,13 +156,55 @@ def aggregate_transactions_monthly(year: int, month: int, month_start: str, mont
     supabase.table("transactions_monthly").insert(txn_monthly_rows).execute()
     logger.info(f"✅ transactions_monthly: {len(txn_monthly_rows)} rreshta")
 
-    # DELETE transactions të muajit → 0 rreshta raw
-    supabase.table("transactions") \
-        .delete() \
-        .gte("timestamp", f"{month_start}T00:00:00") \
-        .lte("timestamp", f"{month_end}T23:59:59") \
-        .execute()
-    logger.info(f"🧹 transactions pastruar: {len(txn_data)} rreshta u fshinë")
+    # DELETE transactions të muajit — batch-për-batch deri sa të mbeten 0
+    logger.info(f"🗑️ Duke fshirë {len(txn_data)} transaksione batch-për-batch...")
+    ts_start = f"{month_start}T00:00:00"
+    ts_end   = f"{month_end}T23:59:59"
+    batch_num     = 0
+    total_deleted = 0
+    BATCH_SIZE    = 500   # i sigurt brenda timeout-it të Supabase Free Tier
+    SLEEP_SEC     = 2     # pushim mes batch-eve
+
+    while True:
+        # 1. Kontrollo sa kanë mbetur
+        count_resp = supabase.table("transactions") \
+            .select("id", count="exact") \
+            .gte("timestamp", ts_start) \
+            .lte("timestamp", ts_end) \
+            .execute()
+        remaining = count_resp.count or 0
+
+        if remaining == 0:
+            logger.info(f"✅ Fshirja kompletuar! {total_deleted} rreshta në {batch_num} batch")
+            break
+
+        logger.info(f"   🔄 Batch {batch_num + 1}: {remaining} rreshta mbetur...")
+
+        # 2. Merr 500 ID specifikë
+        fetch_resp = supabase.table("transactions") \
+            .select("id") \
+            .gte("timestamp", ts_start) \
+            .lte("timestamp", ts_end) \
+            .limit(BATCH_SIZE) \
+            .execute()
+        ids = [r["id"] for r in (fetch_resp.data or [])]
+
+        if not ids:
+            logger.warning("⚠️ Count > 0 por nuk u gjetën ID — ndalim")
+            break
+
+        # 3. Fshi vetëm ato ID (shpejt dhe i sigurt)
+        supabase.table("transactions") \
+            .delete() \
+            .in_("id", ids) \
+            .execute()
+
+        batch_num     += 1
+        total_deleted += len(ids)
+        logger.info(f"   ✅ Batch {batch_num}: fshirë {len(ids)} | Total deri tani: {total_deleted}")
+
+        # 4. Pauzo para batch-it tjetër
+        time.sleep(SLEEP_SEC)
 
 
 # ============================================================
