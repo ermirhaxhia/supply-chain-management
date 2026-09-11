@@ -31,13 +31,15 @@ logger = logging.getLogger("warehouse_module")
 # GJENERO SNAPSHOT PËR 1 MAGAZINË
 # ============================================================
 def generate_warehouse_snapshot(warehouse, shipments, dt):
+    """
+    shipments duhet të jetë tashmë e filtruar për këtë warehouse specifik
+    (shih run_warehouse_hour) — shipments ka route_id, jo warehouse_id
+    direkt, prandaj filtrimi bëhet nga thirrësi përmes route_id → warehouse_id.
+    """
     try:
         warehouse_id = warehouse["warehouse_id"]
         capacity_m3  = warehouse.get("capacity_m3", 1000)
 
-        # ── FIX: Largo filtrin e gabuar warehouse_id ─────
-        # Shipments ka route_id, jo warehouse_id
-        # Merr të gjitha shipments dhe llogarit outbound total
         outbound_units = sum(s.get("units_delivered", 0) for s in shipments)
 
         # Inbound
@@ -81,15 +83,22 @@ def generate_warehouse_snapshot(warehouse, shipments, dt):
 def run_warehouse_hour(
     warehouses: list,
     shipments:  list,
-    dt:         datetime
+    dt:         datetime,
+    routes:     list = None
 ) -> dict:
     """
     Gjeneron snapshot për të gjitha magazinat për 1 orë.
+
+    routes duhet për të mapuar shipments (route_id) → warehouse_id,
+    që outbound_units të jetë specifik për çdo magazinë (më parë të
+    5 magazinat merrnin të njëjtin outbound_units total të rrjetit).
 
     Returns:
         dict : statistikat e magazinave
     """
     logger.info(f"🏭 Warehouse Snapshot | {dt.strftime('%Y-%m-%d %H:%M')}")
+
+    route_to_warehouse = {r["route_id"]: r["warehouse_id"] for r in (routes or [])}
 
     snapshots      = []
     total_capacity = 0.0
@@ -97,8 +106,18 @@ def run_warehouse_hour(
 
     try:
         for warehouse in warehouses:
+            wh_id = warehouse["warehouse_id"]
+            if route_to_warehouse:
+                wh_shipments = [
+                    s for s in shipments
+                    if route_to_warehouse.get(s.get("route_id")) == wh_id
+                ]
+            else:
+                # Pa routes (p.sh. test standalone) — s'mund të filtrohet, ruaj sjelljen e vjetër
+                wh_shipments = shipments
+
             snapshot = generate_warehouse_snapshot(
-                warehouse, shipments, dt
+                warehouse, wh_shipments, dt
             )
             if snapshot:
                 snapshots.append(snapshot)

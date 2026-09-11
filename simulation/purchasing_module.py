@@ -28,25 +28,59 @@ logging.basicConfig(
 logger = logging.getLogger("purchasing_module")
 
 # ============================================================
-# CACHE — Porosi aktive për të shmangur dyfishimin
-# {store_id: {product_id: po_id}}
+# ANTI-DYFISHIM — kontroll kundrejt DB, jo cache në memorie
+# (procesi rifillon çdo orë me GitHub Actions — një cache në
+# memorie do humbiste gjendjen mes ekzekutimeve dhe s'do parandalonte
+# asgjë përtej 1 thirrjeje).
+# purchase_orders s'ka store_id — çelësi real është product_id + warehouse_id.
 # ============================================================
-_active_orders: dict = {}
+def has_active_order(product_id: str, warehouse_id: str) -> bool:
+    """Kontrollon në DB nëse ekziston tashmë një PO 'Pending' për këtë produkt+magazinë."""
+    try:
+        resp = (
+            supabase.table("purchase_orders")
+            .select("po_id")
+            .eq("product_id", product_id)
+            .eq("warehouse_id", warehouse_id)
+            .eq("status", "Pending")
+            .limit(1)
+            .execute()
+        )
+        return bool(resp.data)
+    except Exception as e:
+        logger.warning(f"⚠️ has_active_order dështoi: {e}")
+        return False
 
-def has_active_order(store_id: str, product_id: str) -> bool:
-    """Kontrollon nëse ekziston tashmë një porosi aktive."""
-    return product_id in _active_orders.get(store_id, {})
 
-def register_order(store_id: str, product_id: str, po_id: str):
-    """Regjistron një porosi aktive."""
-    if store_id not in _active_orders:
-        _active_orders[store_id] = {}
-    _active_orders[store_id][product_id] = po_id
-
-def complete_order(store_id: str, product_id: str):
-    """Mbyll një porosi kur dorëzohet."""
-    if store_id in _active_orders:
-        _active_orders[store_id].pop(product_id, None)
+def close_expired_orders(dt: datetime) -> int:
+    """
+    Mbyll (status='Delivered') çdo PO 'Pending' që ka kaluar expected_date.
+    Pa këtë, asnjë PO nuk mbyllet kurrë (complete_order() nuk thirrej askund),
+    duke lënë supplier scorecard on_time_rate përherë 0% dhe orders/pending
+    të rritej pafundësisht.
+    """
+    today = dt.date().isoformat()
+    closed = 0
+    try:
+        resp = (
+            supabase.table("purchase_orders")
+            .select("po_id, qty_ordered")
+            .eq("status", "Pending")
+            .lte("expected_date", today)
+            .execute()
+        )
+        for po in (resp.data or []):
+            supabase.table("purchase_orders").update({
+                "status":       "Delivered",
+                "qty_received": po["qty_ordered"],
+                "actual_date":  today,
+            }).eq("po_id", po["po_id"]).execute()
+            closed += 1
+        if closed:
+            logger.info(f"📬 {closed} porosi u mbyllën (Delivered)")
+    except Exception as e:
+        logger.error(f"❌ ERROR në close_expired_orders: {e}")
+    return closed
 
 # ============================================================
 # GJENERO PURCHASE ORDER
@@ -73,9 +107,9 @@ def generate_purchase_order(
         reorder_qty   = product.get("reorder_qty",   50)
         unit_cost     = product.get("unit_cost",     100)
 
-        # Nuk krijo porosi nëse ekziston një aktive
-        if has_active_order(store_id, product_id):
-            logger.debug(f"⏭️  {product_id}: Porosi aktive ekziston")
+        # Nuk krijo porosi nëse ekziston një Pending për këtë produkt+magazinë
+        if has_active_order(product_id, warehouse_id):
+            logger.debug(f"⏭️  {product_id}: Porosi Pending ekziston tashmë te {warehouse_id}")
             return None
 
         # ── Lead Time ~ Poisson ───────────────────────────
@@ -125,7 +159,6 @@ def generate_purchase_order(
             "status":        "Pending",
         }
 
-        register_order(store_id, product_id, po_id)
         return po
 
     except Exception as e:
@@ -154,9 +187,9 @@ def run_purchasing(
 
     store_id = store["store_id"]
 
-    #Për t'i hapur rrugë porosive të ditës tjetër
-    global _active_orders
-    _active_orders.pop(store_id, None)
+    # Mbyll POs Pending që kanë kaluar expected_date (asnjë PO s'mbyllej kurrë më parë)
+    close_expired_orders(dt)
+
     logger.info(f"🛍️  Purchasing: {store_id} | {dt.strftime('%Y-%m-%d')}")
 
     orders      = []

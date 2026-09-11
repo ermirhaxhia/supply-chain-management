@@ -16,6 +16,7 @@ if BASE_DIR not in sys.path:
     sys.path.append(BASE_DIR)
 
 from config.settings import supabase
+from config.constants import RAW_DATA_RETENTION_DAYS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("daily_aggregator")
@@ -115,10 +116,8 @@ def aggregate_sales(date_str: str):
         logger.info(f"  💾 Sales Batch {i//500 + 1}: {len(batch)} rreshta")
 
     logger.info(f"✅ sales_daily: {total_inserted} rreshta për {len(stores_found)} dyqane")
-
-    # Pastro sales_hourly
-    supabase.table("sales_hourly").delete().eq("date", date_str).execute()
-    logger.info(f"🧹 sales_hourly pastruar për {date_str}")
+    # sales_hourly s'fshihet më këtu — mbahet {RAW_DATA_RETENTION_DAYS} ditë
+    # (shih purge_old_raw_data), jo fshirje e menjëhershme çdo ditë.
 
 
 # ============================================================
@@ -195,10 +194,107 @@ def aggregate_inventory(date_str: str):
         logger.info(f"  💾 Inventory Batch {i//500 + 1}: {len(batch)} rreshta")
 
     logger.info(f"✅ inventory_daily: {total_inserted} rreshta për {len(stores_found)} dyqane")
+    # inventory_log s'fshihet më këtu — mbahet {RAW_DATA_RETENTION_DAYS} ditë
+    # (shih purge_old_raw_data), jo fshirje e menjëhershme çdo ditë.
 
-    # Pastro inventory_log për ditën e djeshme
-    supabase.table("inventory_log").delete().gte("timestamp", f"{date_str}T00:00:00").lte("timestamp", f"{date_str}T23:59:59").execute()
-    logger.info(f"🧹 inventory_log pastruar për {date_str}")
+
+# ============================================================
+# TRANSPORT: shipments → transport_daily
+# (mungonte krejtësisht — transport_daily s'shkruhej askund,
+# /api/v1/logistics/routes/performance kthente gjithmonë bosh)
+# ============================================================
+def aggregate_transport(date_str: str):
+    logger.info(f"🚛 Duke agreguar TRANSPORT për {date_str}...")
+
+    shp_data = fetch_all_rows("shipments", {
+        "departure_time": ("gte", f"{date_str}T00:00:00"),
+    })
+    shp_data = [r for r in shp_data if r["departure_time"][:10] == date_str]
+
+    if not shp_data:
+        logger.warning(f"⚠️ Nuk u gjetën dërgesa për {date_str}")
+        return
+
+    routes_found = set(r["route_id"] for r in shp_data)
+    logger.info(f"🛣️ Rrugët e gjetura ({len(routes_found)}): {sorted(routes_found)}")
+
+    # Kapaciteti i kamionëve — për avg_load_pct (shipments s'e ruan direkt)
+    vehicles_resp = supabase.table("vehicles").select("vehicle_id, capacity_kg").execute()
+    capacity_map = {v["vehicle_id"]: v.get("capacity_kg", 0) for v in (vehicles_resp.data or [])}
+
+    summary = {}
+    for row in shp_data:
+        rid = row["route_id"]
+        if rid not in summary:
+            summary[rid] = {
+                "total_shipments": 0, "total_units": 0, "total_cost": 0.0,
+                "total_delay": 0, "on_time_deliveries": 0,
+                "fuel_consumed": 0.0, "load_pcts": []
+            }
+        s = summary[rid]
+        s["total_shipments"] += 1
+        s["total_units"]     += row.get("units_delivered", 0)
+        s["total_cost"]      += row.get("transport_cost", 0.0)
+        s["total_delay"]     += row.get("delay_minutes", 0)
+        if row.get("delay_minutes", 0) == 0:
+            s["on_time_deliveries"] += 1
+        s["fuel_consumed"] += row.get("fuel_consumed", 0.0)
+
+        cap = capacity_map.get(row.get("vehicle_id"))
+        if cap:
+            s["load_pcts"].append(row.get("load_kg", 0) / cap * 100)
+
+    daily_rows = []
+    for rid, v in summary.items():
+        n = v["total_shipments"]
+        daily_rows.append({
+            "route_id":           rid,
+            "date":               date_str,
+            "total_shipments":    n,
+            "total_units":        v["total_units"],
+            "total_cost":         round(v["total_cost"], 2),
+            "avg_delay_minutes":  round(v["total_delay"] / n, 2) if n else 0.0,
+            "on_time_deliveries": v["on_time_deliveries"],
+            "fuel_consumed":      round(v["fuel_consumed"], 2),
+            "avg_load_pct":       round(sum(v["load_pcts"]) / len(v["load_pcts"]), 2) if v["load_pcts"] else 0.0,
+        })
+
+    # Pastro duplicate
+    existing = supabase.table("transport_daily").select("id").eq("date", date_str).limit(1).execute()
+    if existing.data:
+        logger.warning(f"⚠️ transport_daily për {date_str} ekziston — duke fshirë...")
+        supabase.table("transport_daily").delete().eq("date", date_str).execute()
+
+    total_inserted = 0
+    for i in range(0, len(daily_rows), 500):
+        batch = daily_rows[i:i + 500]
+        supabase.table("transport_daily").insert(batch).execute()
+        total_inserted += len(batch)
+        logger.info(f"  💾 Transport Batch {i//500 + 1}: {len(batch)} rreshta")
+
+    logger.info(f"✅ transport_daily: {total_inserted} rreshta për {len(routes_found)} rrugë")
+
+
+# ============================================================
+# PASTRIM RAW DATA — rul {RAW_DATA_RETENTION_DAYS} ditësh
+# (inventory_log dhe sales_hourly mbahen këtë periudhë, pastaj fshihen)
+# ============================================================
+def purge_old_raw_data(now_alb: datetime):
+    cutoff_dt   = now_alb - timedelta(days=RAW_DATA_RETENTION_DAYS)
+    cutoff_date = cutoff_dt.date().isoformat()
+    logger.info(f"🧹 Duke pastruar raw data më të vjetra se {cutoff_date} ({RAW_DATA_RETENTION_DAYS} ditë)...")
+
+    try:
+        supabase.table("inventory_log").delete().lt("timestamp", f"{cutoff_date}T00:00:00").execute()
+        logger.info(f"✅ inventory_log pastruar (< {cutoff_date})")
+    except Exception as e:
+        logger.error(f"❌ Pastrimi i inventory_log dështoi: {e}")
+
+    try:
+        supabase.table("sales_hourly").delete().lt("date", cutoff_date).execute()
+        logger.info(f"✅ sales_hourly pastruar (< {cutoff_date})")
+    except Exception as e:
+        logger.error(f"❌ Pastrimi i sales_hourly dështoi: {e}")
 
 
 # ============================================================
@@ -215,13 +311,32 @@ def run_daily_aggregation(dt: datetime = None):
         f"UTC: {datetime.utcnow().strftime('%d/%m %H:%M')}"
     )
 
+    errors = []
+
+    for name, fn in [
+        ("sales",     lambda: aggregate_sales(date_str)),
+        ("inventory", lambda: aggregate_inventory(date_str)),
+        ("transport", lambda: aggregate_transport(date_str)),
+    ]:
+        try:
+            fn()
+        except Exception as e:
+            logger.error(f"❌ [{name}] Dështoi: {e}")
+            errors.append(f"{name}: {e}")
+
     try:
-        aggregate_sales(date_str)
-        aggregate_inventory(date_str)
-        logger.info(f"🎉 Agregimi ditor kompletuar për {date_str}")
+        purge_old_raw_data(now_alb)
     except Exception as e:
-        logger.error(f"❌ Gabim kritik në daily_aggregator: {e}")
-        raise
+        logger.error(f"❌ [purge] Dështoi: {e}")
+        errors.append(f"purge: {e}")
+
+    if errors:
+        logger.error(f"❌ Agregimi ditor përfundoi me {len(errors)} gabim/e:")
+        for err in errors:
+            logger.error(f"   • {err}")
+        raise RuntimeError(f"Daily aggregation errors: {errors}")
+
+    logger.info(f"🎉 Agregimi ditor kompletuar për {date_str}")
 
 
 if __name__ == "__main__":

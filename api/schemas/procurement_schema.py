@@ -21,11 +21,14 @@ class PurchaseOrderOut(BaseModel):
     status:        str
 
 class SupplierScoreOut(BaseModel):
+    """Përputhet me përgjigjen e GET /api/v1/procurement/suppliers/scorecard."""
     supplier_id:      str
     supplier_name:    str
+    city:             str
     total_orders:     int
+    delivered_orders: int
     on_time_rate:     float
-    defect_rate:      float
+    total_cost_lek:   float
     reliability_score:float
 
 class CampaignOut(BaseModel):

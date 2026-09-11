@@ -96,7 +96,8 @@ def get_campaign_info(category_id: str) -> dict:
     return result
 
 
-# Backward compatible për sales_module që e thirr ende
+# Wrapper i thjeshtë — sales_module.py përdor get_campaign_info() drejtpërdrejt
+# (i duhen edhe discount_pct edhe campaign_id, jo vetëm demand_multiplier).
 def get_campaign_demand_lift(category_id: str) -> float:
     return get_campaign_info(category_id)["demand_multiplier"]
 

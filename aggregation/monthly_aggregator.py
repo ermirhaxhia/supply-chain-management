@@ -57,6 +57,63 @@ def fetch_all_rows(table: str, filters: dict) -> list:
 
 
 # ============================================================
+# HELPER: Batch Delete (shmang timeout-in e Supabase Free Tier)
+# ============================================================
+def batch_delete(table: str, id_field: str, date_field: str, date_start: str, date_end: str, batch_size: int = 1500, sleep_sec: int = 2):
+    """
+    Fshin rreshtat e një tabele batch-për-batch deri sa të mbeten 0.
+    - table      : emri i tabelës në Supabase
+    - id_field   : kolona PK ('id' për tabelat agregate SERIAL,
+                   'transaction_id' për transactions — s'ka kolonë 'id')
+    - date_field : fusha e filtrimit ('timestamp' ose 'date')
+    - date_start : vlera gte  p.sh. '2026-04-01' ose '2026-04-01T00:00:00'
+    - date_end   : vlera lte  p.sh. '2026-04-30' ose '2026-04-30T23:59:59'
+    - batch_size : sa ID fshihen për çdo iteracion
+    - sleep_sec  : sekonda pushim mes batch-eve
+    """
+    logger.info(f"🗑️ [{table}] Fshirje batch-për-batch ({date_field}: {date_start} → {date_end})...")
+    batch_num     = 0
+    total_deleted = 0
+
+    while True:
+        count_resp = supabase.table(table) \
+            .select(id_field, count="exact") \
+            .gte(date_field, date_start) \
+            .lte(date_field, date_end) \
+            .execute()
+        remaining = count_resp.count or 0
+
+        if remaining == 0:
+            logger.info(f"✅ [{table}] Fshirja kompletuar! {total_deleted} rreshta në {batch_num} batch")
+            break
+
+        logger.info(f"   🔄 [{table}] Batch {batch_num + 1}: {remaining} rreshta mbetur...")
+
+        fetch_resp = supabase.table(table) \
+            .select(id_field) \
+            .gte(date_field, date_start) \
+            .lte(date_field, date_end) \
+            .limit(batch_size) \
+            .execute()
+        ids = [r[id_field] for r in (fetch_resp.data or [])]
+
+        if not ids:
+            logger.warning(f"⚠️ [{table}] Count > 0 por nuk u gjetën ID — ndalim")
+            break
+
+        supabase.table(table) \
+            .delete() \
+            .in_(id_field, ids) \
+            .execute()
+
+        batch_num     += 1
+        total_deleted += len(ids)
+        logger.info(f"   ✅ [{table}] Batch {batch_num}: fshirë {len(ids)} | Total: {total_deleted}")
+
+        time.sleep(sleep_sec)
+
+
+# ============================================================
 # TRANSACTIONS: transactions → transactions_monthly → DELETE
 # ============================================================
 def aggregate_transactions_monthly(year: int, month: int, month_start: str, month_end: str):
@@ -156,14 +213,14 @@ def aggregate_transactions_monthly(year: int, month: int, month_start: str, mont
     supabase.table("transactions_monthly").insert(txn_monthly_rows).execute()
     logger.info(f"✅ transactions_monthly: {len(txn_monthly_rows)} rreshta")
 
-    # DELETE transactions të muajit — batch-për-batch deri sa të mbeten 0
+    # DELETE transactions të muajit — transaction_id është PK (jo "id")
     batch_delete(
         table      = "transactions",
+        id_field   = "transaction_id",
         date_field = "timestamp",
         date_start = f"{month_start}T00:00:00",
         date_end   = f"{month_end}T23:59:59",
     )
-
 
 # ============================================================
 # SALES: sales_daily → sales_monthly + kpi_monthly
@@ -282,6 +339,7 @@ def aggregate_sales_monthly(year: int, month: int, month_start: str, month_end: 
 
     batch_delete(
         table      = "sales_daily",
+        id_field   = "id",
         date_field = "date",
         date_start = month_start,
         date_end   = month_end,
@@ -349,11 +407,11 @@ def aggregate_inventory_monthly(year: int, month: int, month_start: str, month_e
 
     batch_delete(
         table      = "inventory_daily",
+        id_field   = "id",
         date_field = "date",
         date_start = month_start,
         date_end   = month_end,
     )
-
 
 # ============================================================
 # ENTRY POINT
@@ -378,14 +436,24 @@ def run_monthly_aggregation(dt: datetime = None):
 
     errors = []
 
-    # ── 1. SALES ─────────────────────────────────────────────
+    # Rendi ka rëndësi: transactions_monthly duhet të ekzistojë para
+    # aggregate_sales_monthly, sepse kjo e fundit e lexon për avg_basket_value.
+
+    # ── 1. TRANSACTIONS ──────────────────────────────────────
+    try:
+        aggregate_transactions_monthly(year, month, month_start, month_end)
+    except Exception as e:
+        logger.error(f"❌ [transactions] Dështoi: {e}")
+        errors.append(f"transactions: {e}")
+
+    # ── 2. SALES ─────────────────────────────────────────────
     try:
         aggregate_sales_monthly(year, month, month_start, month_end)
     except Exception as e:
         logger.error(f"❌ [sales] Dështoi: {e}")
         errors.append(f"sales: {e}")
 
-    # ── 2. INVENTORY ─────────────────────────────────────────
+    # ── 3. INVENTORY ─────────────────────────────────────────
     try:
         aggregate_inventory_monthly(year, month, month_start, month_end)
     except Exception as e:

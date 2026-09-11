@@ -65,10 +65,10 @@ def has_run_today(key: str, today: str) -> bool:
 def mark_as_run(key: str, today: str):
     """
     Shënon që moduli është ekzekutuar sot.
-    Upsert: krijon ose përditëson config_key.
+    Upsert: krijon ose përditëson rreshtin (key është PRIMARY KEY).
     """
     try:
-        supabase.table("run_log").update({"last_run": today}).eq("key", key).execute()
+        supabase.table("run_log").upsert({"key": key, "last_run": today}).execute()
     except Exception as e:
         logger.warning(f"⚠️ mark_as_run dështoi: {e}")
 
@@ -114,40 +114,53 @@ def get_real_stock(store_id: str, products: list) -> dict:
     për çdo produkt pa kufizim kohe.
     """
     try:
-        resp = (
-            supabase.table("inventory_log")
-            .select("product_id, stock_after")
-            .eq("store_id", store_id)
-            .order("timestamp", desc=True)
-            .limit(400)   # max produkte × 1 rresht i fundit
-            .execute()
-        )
-        if resp.data:
-            stock = {}
-            for row in resp.data:
+        needed       = {p["product_id"] for p in products}
+        stock        = {}
+        rows_checked = 0
+        page_size    = 1000   # kufiri i PostgREST-it — .limit() më i madh s'ndryshon asgjë
+        offset       = 0
+        max_pages    = 10     # kufi sigurie: 10k rreshta, mjafton edhe ditët më të ngarkuara
+
+        for _ in range(max_pages):
+            resp = (
+                supabase.table("inventory_log")
+                .select("product_id, stock_after")
+                .eq("store_id", store_id)
+                .order("timestamp", desc=True)
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            batch = resp.data or []
+            rows_checked += len(batch)
+            for row in batch:
                 pid = row["product_id"]
                 if pid not in stock:  # merr vetëm të parin (më të fundit)
                     stock[pid] = row["stock_after"]
 
-            logger.info(f"   📦 Stock real: {len(stock)} produkte")
+            # Ndalo herët sapo kemi gjetur lëvizje për çdo produkt,
+            # ose kur s'ka më rreshta
+            if len(stock) >= len(needed) or len(batch) < page_size:
+                break
+            offset += page_size
 
-            # Kontrollo nëse ka produkte nën reorder_point
-            reorder_map = {p["product_id"]: p.get("reorder_point", 20) for p in products}
-            below = sum(1 for pid, qty in stock.items() if qty <= reorder_map.get(pid, 20))
-            logger.info(f"   ⚠️  Produkte nën reorder_point: {below}")
-            return stock
-        
-        # Plotëso produktet që mungojnë me max_stock
+        # Plotëso produktet pa lëvizje të fundit me max_stock (jo me stock artificialisht të ulët)
         for p in products:
             pid = p["product_id"]
             if pid not in stock:
-                stock[pid] = p.get("max_stock", 999)  # ← FIX
+                stock[pid] = p.get("max_stock", 999)
+
+        logger.info(f"   📦 Stock real: {rows_checked} lëvizje kontrolluar, {len(stock)} produkte të gjetura")
+
+        # Kontrollo nëse ka produkte nën reorder_point
+        reorder_map = {p["product_id"]: p.get("reorder_point", 20) for p in products}
+        below = sum(1 for pid, qty in stock.items() if qty <= reorder_map.get(pid, 20))
+        logger.info(f"   ⚠️  Produkte nën reorder_point: {below}")
         return stock
 
     except Exception as e:
         logger.warning(f"⚠️ get_real_stock dështoi: {e}", exc_info=True)
 
-    # Fallback me stock të ulët për të garantuar purchasing
+    # Fallback vetëm kur vetë thirrja Supabase dështon (jo kur s'ka rreshta)
     logger.warning(f"⚠️ Fallback: duke simuluar stock të ulët për {store_id}")
     return {p["product_id"]: p.get("reorder_point", 20) - 1 for p in products}
 
@@ -205,19 +218,37 @@ def simulation_tick():
 
         # ── TRANSPORT — 1 herë/ditë ───────────────────────
         # Ekzekutohet herën e parë të ditës pa kufi orash
-        active_shipments = []
         if not has_run_today("transport", today):
             if _routes and _vehicles and _drivers:
                 logger.info("🚚 Duke nisur flotën (1 herë sot)...")
                 try:
                     stats = run_transport_day(_routes, _vehicles, _drivers, dt)
-                    active_shipments = [{"status": "dispatched"}] * stats.get("shipments", 0)
                     mark_as_run("transport", today)
                     logger.info(f"✅ Transport: {stats.get('shipments',0)} dërgesa")
                 except Exception as e:
                     logger.warning(f"⚠️ Transport dështoi: {e}", exc_info=True)
         else:
             logger.info("⏭️  Transport: tashmë ekzekutuar sot")
+
+        # ── DËRGESAT E SOTME (për warehouse snapshot) ─────
+        # FIX: më parë këtu vihej [{"status": "dispatched"}] * N — pa
+        # route_id/units_delivered fare, kështu që outbound_units te
+        # warehouse_snapshot ishte GJITHMONË 0. Lexojmë dërgesat reale
+        # të ditës (jo vetëm të orës aktuale — transporti nis 2x/ditë,
+        # snapshot-i çdo orë, kështu që gjendja mbetet e qëndrueshme
+        # gjatë gjithë ditës mes dy nisjeve).
+        active_shipments = []
+        try:
+            resp = (
+                supabase.table("shipments")
+                .select("route_id, units_delivered")
+                .gte("departure_time", f"{today}T00:00:00")
+                .lte("departure_time", f"{today}T23:59:59")
+                .execute()
+            )
+            active_shipments = resp.data or []
+        except Exception as e:
+            logger.warning(f"⚠️ Leximi i shipments të sotme dështoi: {e}")
 
         # ── Krijo map store → warehouse ──────────────────
         store_to_warehouse = {}
@@ -242,21 +273,31 @@ def simulation_tick():
                 logger.error(f"❌ Sales dështoi {store_id}: {e}", exc_info=True)
                 continue
 
-            # 2. LEXO SALES_HOURLY
+            # 2. LEXO SALES_HOURLY (i paginuar — PostgREST kufizon ~1000
+            #    rreshta/query; në orët e pikut 1 store mund të kalojë lehtë
+            #    këtë numër, duke lënë shitje jashtë zbritjes së stokut)
             transactions_for_inv = []
             try:
-                resp = (
-                    supabase.table("sales_hourly")
-                    .select("product_id, units_sold")
-                    .eq("store_id", store_id)
-                    .eq("date",     dt.date().isoformat())
-                    .eq("hour",     dt.hour)
-                    .execute()
-                )
-                transactions_for_inv = [
-                    {"product_id": r["product_id"], "quantity": r["units_sold"]}
-                    for r in (resp.data or [])
-                ]
+                page_size = 1000
+                offset    = 0
+                while True:
+                    resp = (
+                        supabase.table("sales_hourly")
+                        .select("product_id, units_sold")
+                        .eq("store_id", store_id)
+                        .eq("date",     dt.date().isoformat())
+                        .eq("hour",     dt.hour)
+                        .range(offset, offset + page_size - 1)
+                        .execute()
+                    )
+                    batch = resp.data or []
+                    transactions_for_inv.extend(
+                        {"product_id": r["product_id"], "quantity": r["units_sold"]}
+                        for r in batch
+                    )
+                    if len(batch) < page_size:
+                        break
+                    offset += page_size
             except Exception as e:
                 logger.warning(f"⚠️ sales_hourly lexim dështoi {store_id}: {e}")
 
@@ -291,7 +332,7 @@ def simulation_tick():
 
         # ── WAREHOUSE SNAPSHOTS ──────────────────────────
         try:
-            run_warehouse_hour(_warehouses, active_shipments, dt)
+            run_warehouse_hour(_warehouses, active_shipments, dt, _routes)
         except Exception as e:
             logger.warning(f"⚠️ Warehouse dështoi: {e}")
 

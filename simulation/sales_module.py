@@ -27,6 +27,10 @@ from config.constants import (
     TRANSACTION_ID_PREFIX,
 )
 from simulation.demand_profile import get_customers, load_simulation_config, get_config
+from simulation.marketing_module import get_campaign_info
+
+# Default kur s'ka kampanjë aktive për një kategori
+_NO_CAMPAIGN = {"demand_multiplier": 1.0, "discount_pct": 0.0, "campaign_id": None}
 
 # ============================================================
 # LOGGING
@@ -134,12 +138,35 @@ def get_basket_size(basket_type: str, dt: datetime) -> int:
         return 1
 
 # ============================================================
+# PESHIM SIPAS KATEGORISË — kampanjat aktive rrisin gjasën
+# që produktet e kategorisë së tyre të zgjidhen (demand lift real)
+# ============================================================
+def _weighted_sample(pool: list, size: int, category_weights: dict | None) -> list:
+    """np.random.choice me peshim opsional sipas category_weights (demand_multiplier)."""
+    if not pool:
+        return []
+    if not category_weights:
+        return list(np.random.choice(pool, size=size, replace=True))
+
+    weights = np.array(
+        [category_weights.get(p.get("category_id"), 1.0) for p in pool],
+        dtype=float
+    )
+    if weights.sum() <= 0:
+        return list(np.random.choice(pool, size=size, replace=True))
+
+    probs = weights / weights.sum()
+    return list(np.random.choice(pool, size=size, replace=True, p=probs))
+
+
+# ============================================================
 # SELEKTO PRODUKTET PËR SHPORTË
 # ============================================================
 def select_products_for_basket(
     basket_type: str,
     basket_size: int,
-    products: list
+    products: list,
+    category_weights: dict | None = None
 ) -> list:
     """
     Zgjedh produktet për shportën duke respektuar
@@ -147,6 +174,9 @@ def select_products_for_basket(
     - Blerje e shpejtë → produkte të kategorive A dhe B
     - Blerje familjare → mix i kategorive
     - Blerje e madhe  → produkte me volum të lartë
+    - category_weights → {category_id: demand_multiplier} nga kampanjat
+      aktive (marketing_module.get_campaign_info); rrit gjasën e zgjedhjes
+      së produkteve të kategorisë në promocion.
 
     Returns:
         list : lista e produkteve të zgjedhura
@@ -168,23 +198,29 @@ def select_products_for_basket(
         elif basket_type == "family":
             # Mix i gjerë — produkte nga kategori të ndryshme
             pool = products
-            # Siguro diversitet kategorish
+            # Siguro diversitet kategorish, i peshuar nga kampanjat aktive
             categories = list(set(p["category_id"] for p in products))
+            cat_p = None
+            if category_weights:
+                cat_w = np.array([category_weights.get(c, 1.0) for c in categories], dtype=float)
+                if cat_w.sum() > 0:
+                    cat_p = cat_w / cat_w.sum()
+
             selected = []
             remaining = basket_size
 
             # Merr 1-2 produkte nga çdo kategori
             for cat in np.random.choice(categories,
                                          min(len(categories), basket_size),
-                                         replace=False):
+                                         replace=False, p=cat_p):
                 cat_products = [p for p in pool if p["category_id"] == cat]
                 if cat_products and remaining > 0:
                     selected.append(np.random.choice(cat_products))
                     remaining -= 1
 
-            # Plotëso me produkte random nëse duhen më shumë
+            # Plotëso me produkte (peshuar) nëse duhen më shumë
             while remaining > 0:
-                selected.append(np.random.choice(pool))
+                selected.extend(_weighted_sample(pool, 1, category_weights))
                 remaining -= 1
 
             return selected[:basket_size]
@@ -198,8 +234,7 @@ def select_products_for_basket(
             pool = products
 
         # Zgjedh produkte (me zëvendësim — i njëjti produkt mund të jetë 2x)
-        selected = list(np.random.choice(pool, size=basket_size, replace=True))
-        return selected
+        return _weighted_sample(pool, basket_size, category_weights)
 
     except Exception as e:
         logger.error(f"❌ ERROR në select_products_for_basket: {e}")
@@ -211,21 +246,33 @@ def select_products_for_basket(
 def generate_transaction(
     store: dict,
     products: list,
-    dt: datetime
+    dt: datetime,
+    category_campaign_info: dict | None = None
 ) -> dict | None:
     """
     Gjeneron 1 faturë të plotë të ndarë në dysh:
     - header (për tabelën transactions)
     - items  (për tabelën sales_hourly)
+
+    category_campaign_info: {category_id: get_campaign_info(category_id)}
+    e para-llogaritur 1x/orë nga run_sales_hour — përdoret për demand lift
+    (peshim i produkteve) dhe zbritje TË TARGETUARA sipas kategorisë së
+    kampanjës aktive, jo më zbritje globale mbi gjithë faturën.
     """
     try:
+        category_campaign_info = category_campaign_info or {}
+        category_weights = {
+            cid: info["demand_multiplier"]
+            for cid, info in category_campaign_info.items()
+        }
+
         # ── 1. Basket type dhe size ──────────────────────
         basket_type = get_basket_type(dt)
         basket_size = get_basket_size(basket_type, dt)
 
-        # ── 2. Zgjedh produktet ──────────────────────────
+        # ── 2. Zgjedh produktet (peshuar nga kampanjat aktive) ──
         selected_products = select_products_for_basket(
-            basket_type, basket_size, products
+            basket_type, basket_size, products, category_weights
         )
         if not selected_products:
             logger.warning(f"⚠️  Store {store['store_id']}: Nuk u zgjodhën produkte")
@@ -241,21 +288,10 @@ def generate_transaction(
             logger.debug(f"🚫 Store {store['store_id']}: Stockout total për këtë faturë")
             return None
 
-        # ── 4. Discount (Për të gjithë faturën) ──────────
-        discount_pct = 0.0
-        promo_id     = None
-        promo_active = get_config("promo_active", 0.0)
-
-        if promo_active == 1.0:
-            discount_pct = float(get_config("promo_discount_pct", 0.0))
-            promo_id     = "PROMO-ACTIVE"
-        elif np.random.random() < DISCOUNT_PROBABILITY:
-            val = float(np.random.randint(DISCOUNT_RANGE[0], DISCOUNT_RANGE[1]))
-            discount_pct = min(val, 20.0) 
-
-        # ── 5. Llogaritjet Financiare Dhe Detajet ────────
+        # ── 4. Llogaritjet Financiare Dhe Detajet ────────
         basket_items = []
-        
+        promo_id     = None  # mbush me campaign_id e parë që prek një produkt të faturës
+
         # Variablat Agreguese të Faturës
         total_items           = 0
         total_revenue_gross   = 0.0
@@ -267,14 +303,25 @@ def generate_transaction(
             price = float(p.get("unit_price", 100))
             # Nëse nuk e ke kolonën 'unit_cost' te db e produkteve, supozojmë 60%
             unit_cost = float(p.get("unit_cost", price * 0.6))
-            
+
+            # ── Zbritje SIPAS KATEGORISË së këtij produkti ──
+            campaign_info = category_campaign_info.get(p.get("category_id"), _NO_CAMPAIGN)
+            if campaign_info["campaign_id"]:
+                item_discount_pct = campaign_info["discount_pct"]
+                if promo_id is None:
+                    promo_id = campaign_info["campaign_id"]
+            elif np.random.random() < DISCOUNT_PROBABILITY:
+                item_discount_pct = min(float(np.random.randint(DISCOUNT_RANGE[0], DISCOUNT_RANGE[1])), 20.0)
+            else:
+                item_discount_pct = 0.0
+
             # Logjika e sasisë (qty)
             if price < 150:
-                qty = np.random.randint(1, 5)   
+                qty = np.random.randint(1, 5)
             elif price < 500:
-                qty = np.random.randint(1, 3)   
+                qty = np.random.randint(1, 3)
             else:
-                qty = 1                          
+                qty = 1
 
             if basket_type == "quick":
                 qty = 1
@@ -283,7 +330,7 @@ def generate_transaction(
 
             # Matematika për këtë Rresht (Produkt)
             item_gross_revenue = price * qty
-            item_discount      = item_gross_revenue * (discount_pct / 100)
+            item_discount      = item_gross_revenue * (item_discount_pct / 100)
             item_net_rev       = item_gross_revenue - item_discount
             item_cogs          = unit_cost * qty
             item_profit        = item_net_rev - item_cogs
@@ -330,10 +377,11 @@ def generate_transaction(
             "gross_profit":    round(total_net_revenue - total_cogs, 2)
         }
 
-        # Kthen të dyja objektet pa humbur asgjë
+        # Kthen të dyja objektet pa humbur asgjë + basket_type real (për stats)
         return {
             "header": transaction_header,
-            "items": basket_items
+            "items": basket_items,
+            "basket_type": basket_type
         }
     
     except Exception as e:
@@ -364,6 +412,12 @@ def run_sales_hour(store: dict, products: list, dt: datetime) -> dict:
 
     num_customers = get_customers(store, dt)
 
+    # Kampanjat aktive → demand lift + zbritje sipas kategorie, llogaritur
+    # 1x/orë (jo për çdo klient) — kërkon që marketing_module.load_active_campaigns(dt)
+    # të jetë thirrur më herët nga scheduler.py për këtë ditë.
+    categories_in_products = {p["category_id"] for p in products if p.get("category_id")}
+    category_campaign_info = {cid: get_campaign_info(cid) for cid in categories_in_products}
+
     all_headers       = []
     all_items         = []
     total_net_revenue = 0.0
@@ -372,15 +426,15 @@ def run_sales_hour(store: dict, products: list, dt: datetime) -> dict:
 
     # 1. Përgatitja e të dhënave në memorje
     for _ in range(num_customers):
-        txn = generate_transaction(store, products, dt)
+        txn = generate_transaction(store, products, dt, category_campaign_info)
         if txn:
             all_headers.append(txn["header"])
             all_items.extend(txn["items"])
-            
+
             # Kujdes: Tani përdorim net_revenue për të pasqyruar realitetin e xhiros
-            total_net_revenue += txn["header"]["net_revenue"] 
-            
-            basket_type = get_basket_type(dt)
+            total_net_revenue += txn["header"]["net_revenue"]
+
+            basket_type = txn["basket_type"]
             basket_type_stats[basket_type] = basket_type_stats.get(basket_type, 0) + 1
         else:
             failed_count += 1

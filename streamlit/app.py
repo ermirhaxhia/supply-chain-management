@@ -831,7 +831,8 @@ def fetch_recent_transactions(limit=5000):
     try:
         resp = (
             supabase.table("transactions")
-            .select("store_id, product_id, timestamp, quantity, total, discount_pct, payment_method, customer_type")
+            .select("store_id, timestamp, customer_type, payment_method, promotion_id, "
+                    "total_items, revenue, discount_amount, net_revenue, cogs, gross_profit")
             .order("timestamp", desc=True)
             .limit(limit)
             .execute()
@@ -1130,8 +1131,10 @@ def page_monitor():
                 lambda r: r["date"].replace(hour=int(r["hour"])), axis=1
             )
             # Grupo sipas dt — agregoj të gjitha store-et dhe produktet
+            # (transactions_count = rreshta shitje/orë, jo fatura unike —
+            # sales_hourly është granularitet artikulli, jo fature)
             hourly = df_sh.groupby("dt").agg(
-                transactions=("transactions", "sum"),
+                transactions=("transactions_count", "sum"),
                 revenue=("revenue", "sum"),
             ).reset_index().sort_values("dt").tail(48)
 
@@ -1196,9 +1199,9 @@ def page_analytics():
     df_txn["hour"] = df_txn["timestamp"].dt.hour
 
     # ── KPI Row ──────────────────────────────────────────
-    total_rev  = df_txn["total"].sum()
+    total_rev  = df_txn["net_revenue"].sum()
     total_cnt  = len(df_txn)
-    avg_basket = df_txn["total"].mean()
+    avg_basket = df_txn["net_revenue"].mean()
     member_pct = (df_txn["customer_type"] == "Member").mean() * 100
 
     render_kpi_cards([
@@ -1290,12 +1293,16 @@ def page_analytics():
     df_sh_all = fetch_sales_hourly(10000)
     if not df_sh_all.empty:
         try:
-            # Grupo sipas orës — mesatare e transaksioneve dhe revenue
+            # Grupo sipas orës — totale (jo mesatare e rreshtave, sales_hourly
+            # është granularitet artikulli); avg_item_value = revenue/rresht,
+            # nuk ekziston kolonë "avg_basket" më te sales_hourly.
             hourly_avg = df_sh_all.groupby("hour").agg(
-                transactions=("transactions", "mean"),
-                avg_basket=("avg_basket", "mean"),
-                revenue=("revenue", "mean"),
+                transactions=("transactions_count", "sum"),
+                revenue=("revenue", "sum"),
             ).reset_index().sort_values("hour")
+            hourly_avg["avg_basket"] = (
+                hourly_avg["revenue"] / hourly_avg["transactions"].replace(0, np.nan)
+            ).fillna(0)
 
             # Mbush orët që mungojnë me 0
             all_hours = pd.DataFrame({"hour": range(6, 23)})
@@ -1350,7 +1357,7 @@ def page_analytics():
 
     with col3:
         fig4 = go.Figure()
-        bins = np.histogram(df_txn["total"].clip(upper=10000), bins=40)
+        bins = np.histogram(df_txn["net_revenue"].clip(upper=10000), bins=40)
         fig4.add_trace(go.Bar(
             x=bins[1][:-1], y=bins[0],
             marker_color="rgba(0,200,150,0.44)",
@@ -1561,9 +1568,10 @@ def page_control():
         if st.button("Injekto Event në Simulim", type="primary" if event_type != "— Asnjë Event —" else "secondary"):
             try:
                 for key, val in params.items():
-                    supabase.table("simulation_config").update(
-                        {"config_value": val}
-                    ).eq("config_key", key).execute()
+                    supabase.table("simulation_config").upsert(
+                        {"config_key": key, "config_value": val},
+                        on_conflict="config_key"
+                    ).execute()
                 st.success(f"Event i aplikuar: {event_type}")
                 st.cache_data.clear()
             except Exception as e:
@@ -1600,9 +1608,10 @@ def page_control():
                     "import_price_multiplier": 1 + import_pct/100,
                 }
                 for key, val in updates.items():
-                    supabase.table("simulation_config").update(
-                        {"config_value": round(val, 4)}
-                    ).eq("config_key", key).execute()
+                    supabase.table("simulation_config").upsert(
+                        {"config_key": key, "config_value": round(val, 4)},
+                        on_conflict="config_key"
+                    ).execute()
                 st.success("Price shock i aplikuar.")
                 st.cache_data.clear()
             except Exception as e:
@@ -1628,9 +1637,10 @@ def page_control():
                     "promo_active":           0.0,
                 }
                 for key, val in defaults.items():
-                    supabase.table("simulation_config").update(
-                        {"config_value": val}
-                    ).eq("config_key", key).execute()
+                    supabase.table("simulation_config").upsert(
+                        {"config_key": key, "config_value": val},
+                        on_conflict="config_key"
+                    ).execute()
                 st.success("Të gjithë parametrat u rivendosën.")
                 st.cache_data.clear()
             except Exception as e:
