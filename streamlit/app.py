@@ -1674,7 +1674,7 @@ def main():
     # ── TOP NAVBAR ───────────────────────────────────────
     now_str   = datetime.now().strftime("%H:%M:%S")
     tabs_html = "".join([
-        f'<a class="scm-tab {"active" if pg["id"]==page_id else ""}" href="?p={pg["id"]}">'
+        f'<a class="scm-tab {"active" if pg["id"]==page_id else ""}" href="?p={pg["id"]}" target="_self">'
         f'<span class="scm-tab-icon">{pg["icon"]}</span>'
         f'<span class="scm-tab-label">{pg["label"]}</span>'
         f'</a>'

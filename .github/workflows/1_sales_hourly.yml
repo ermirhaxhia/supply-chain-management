@@ -1,11 +1,9 @@
 name: 🛒 1. Sales Hourly (06:00-22:00)
 
 on:
-  # ÇAKTIVIZUAR PËRKOHËSISHT — DB po ristrukturohet, modulet po debugohen.
-  # Rikthe cron-in më poshtë kur të jetë gati.
-  # schedule:
-  #   # Ekzekutohet çdo orë nga 06:00 deri 22:00 (Koha e Tiranës)
-  #   - cron: "0 4-20 * * *"
+  schedule:
+    # Ekzekutohet çdo orë nga 06:00 deri 22:00 (Koha e Tiranës)
+    - cron: "0 4-20 * * *"
   workflow_dispatch:
 
 jobs:

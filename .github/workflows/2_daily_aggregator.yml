@@ -1,11 +1,9 @@
 name: 📊 2. Daily Aggregation (23:55)
 
 on:
-  # ÇAKTIVIZUAR PËRKOHËSISHT — DB po ristrukturohet, modulet po debugohen.
-  # Rikthe cron-in më poshtë kur të jetë gati.
-  # schedule:
-  #   # Ekzekutohet çdo natë në orën 23:55 (Koha e Tiranës -> 21:55 UTC)
-  #   - cron: "55 21 * * *"
+  schedule:
+    # Ekzekutohet çdo natë në orën 23:55 (Koha e Tiranës -> 21:55 UTC)
+    - cron: "55 21 * * *"
   workflow_dispatch:
 
 jobs:
