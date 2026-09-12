@@ -132,7 +132,11 @@ PROMO_DEMAND_LIFT_RANGE = (0.10, 0.35)  # +10% deri +35% rritje kërkese
 HOURLY_AGGREGATE_MINUTE  = 55   # Agregim në minutën :55 të çdo ore
 DAILY_AGGREGATE_HOUR     = 23   # Agregim ditor ora 23:00
 MONTHLY_AGGREGATE_DAY    = 1    # Agregim mujor ditën 1 të muajit
-RAW_DATA_RETENTION_DAYS  = 30   # Fshi raw data > 30 ditë
+
+# Retention vetëm për tabelat RAW (granularitet artikulli/lëvizje individuale):
+# sales_hourly, inventory_log. sales_hourly_agg (1 rresht/store/produkt/orë,
+# për ARIMA) NUK preket nga kjo — mbahet përgjithmonë.
+RAW_DATA_RETENTION_DAYS  = 3
 
 # ============================================================
 # ID GENERATION

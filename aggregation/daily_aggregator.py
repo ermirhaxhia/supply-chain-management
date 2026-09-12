@@ -55,6 +55,9 @@ def fetch_all_rows(table: str, filters: dict) -> list:
 
 # ============================================================
 # SALES: sales_hourly → sales_daily
+# (sales_hourly_agg është vetëm per-STORE, pa detaj produkti — për
+#  sales_daily/sales_monthly na duhet product_id, prandaj lexojmë nga
+#  raw sales_hourly, i disponueshëm brenda RAW_DATA_RETENTION_DAYS)
 # ============================================================
 def aggregate_sales(date_str: str):
     logger.info(f"🛒 Duke agreguar SALES për {date_str}...")
@@ -277,7 +280,9 @@ def aggregate_transport(date_str: str):
 
 # ============================================================
 # PASTRIM RAW DATA — rul {RAW_DATA_RETENTION_DAYS} ditësh
-# (inventory_log dhe sales_hourly mbahen këtë periudhë, pastaj fshihen)
+# (inventory_log dhe sales_hourly RAW — 1 rresht/lëvizje ose artikull —
+# mbahen këtë periudhë, pastaj fshihen. sales_hourly_agg (1 rresht/
+# store/produkt/orë, për ARIMA) NUK preket këtu — mbahet përgjithmonë.)
 # ============================================================
 def purge_old_raw_data(now_alb: datetime):
     cutoff_dt   = now_alb - timedelta(days=RAW_DATA_RETENTION_DAYS)

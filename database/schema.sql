@@ -248,6 +248,9 @@ CREATE TABLE fuel_prices (
 
 -- RISTRUKTURUAR: përputhet me basket_items të sales_module.py
 -- dhe me çfarë lexon daily_aggregator.aggregate_sales().
+-- RAW — 1 rresht/artikull shportë/orë. Retention e shkurtër
+-- (RAW_DATA_RETENTION_DAYS, shih purge_old_raw_data) — buffer para
+-- se të shkrihet në sales_hourly_agg, JO arkiv afatgjatë.
 CREATE TABLE sales_hourly (
     id                  SERIAL PRIMARY KEY,
     store_id            VARCHAR(10) NOT NULL REFERENCES stores(store_id),
@@ -261,6 +264,25 @@ CREATE TABLE sales_hourly (
     cogs                FLOAT NOT NULL,
     gross_profit        FLOAT NOT NULL,
     transactions_count  INT DEFAULT 1
+);
+
+-- E RE — 1 rresht/store/ORË (JO/produkt — u provua matematikisht që
+-- granulariteti për-produkt prodhon ~3.4 GB/vit, shumë mbi 500MB).
+-- Arkivi i vërtetë për ARIMA (1 seri kohore = xhiro/orë), mbahet
+-- PËRGJITHMONË. sales_daily/sales_monthly (detaj produkti) ushqehen nga
+-- sales_hourly raw (poshtë), jo nga kjo.
+CREATE TABLE sales_hourly_agg (
+    id                  SERIAL PRIMARY KEY,
+    store_id            VARCHAR(10) NOT NULL REFERENCES stores(store_id),
+    date                DATE NOT NULL,
+    hour                INT NOT NULL,
+    transactions_count  INT NOT NULL,
+    units_sold          INT NOT NULL,
+    revenue             FLOAT NOT NULL,
+    discount_amount     FLOAT DEFAULT 0.0,
+    net_revenue         FLOAT NOT NULL,
+    cogs                FLOAT NOT NULL,
+    gross_profit        FLOAT NOT NULL
 );
 
 -- RISTRUKTURUAR: përputhet me daily_rows të daily_aggregator.aggregate_sales().
@@ -398,6 +420,8 @@ CREATE INDEX idx_inventory_log_timestamp   ON inventory_log(timestamp);
 CREATE INDEX idx_shipments_status          ON shipments(status);
 CREATE INDEX idx_sales_hourly_date         ON sales_hourly(date);
 CREATE INDEX idx_sales_hourly_store        ON sales_hourly(store_id);
+CREATE INDEX idx_sales_hourly_agg_date     ON sales_hourly_agg(date);
+CREATE INDEX idx_sales_hourly_agg_store    ON sales_hourly_agg(store_id);
 CREATE INDEX idx_sales_daily_date          ON sales_daily(date);
 CREATE INDEX idx_sales_monthly_year_month  ON sales_monthly(year, month);
 CREATE INDEX idx_inventory_daily_date      ON inventory_daily(date);
@@ -428,6 +452,7 @@ ALTER TABLE warehouse_snapshot   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE campaigns            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fuel_prices          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sales_hourly         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sales_hourly_agg     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sales_daily          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sales_monthly        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions_monthly ENABLE ROW LEVEL SECURITY;
@@ -455,6 +480,7 @@ CREATE POLICY "service_role_all" ON warehouse_snapshot    FOR ALL USING (true);
 CREATE POLICY "service_role_all" ON campaigns             FOR ALL USING (true);
 CREATE POLICY "service_role_all" ON fuel_prices           FOR ALL USING (true);
 CREATE POLICY "service_role_all" ON sales_hourly          FOR ALL USING (true);
+CREATE POLICY "service_role_all" ON sales_hourly_agg      FOR ALL USING (true);
 CREATE POLICY "service_role_all" ON sales_daily           FOR ALL USING (true);
 CREATE POLICY "service_role_all" ON sales_monthly         FOR ALL USING (true);
 CREATE POLICY "service_role_all" ON transactions_monthly  FOR ALL USING (true);

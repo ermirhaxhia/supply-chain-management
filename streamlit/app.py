@@ -843,9 +843,12 @@ def fetch_recent_transactions(limit=5000):
 
 @st.cache_data(ttl=120)
 def fetch_sales_hourly(limit=2000):
+    # sales_hourly_agg (1 rresht/store/produkt/orë, mbahet përgjithmonë) —
+    # jo sales_hourly raw (1/artikull shportë, retention ~5 ditë). Të
+    # njëjtat kolona, po e njëjta pamje historike e plotë për grafikët.
     try:
         resp = (
-            supabase.table("sales_hourly")
+            supabase.table("sales_hourly_agg")
             .select("*")
             .order("date", desc=True)
             .limit(limit)

@@ -454,7 +454,8 @@ def run_sales_hour(store: dict, products: list, dt: datetime) -> dict:
         except Exception as e:
             logger.error(f"❌ ERROR Kritik INSERT transactions: {e}")
 
-    # 3. INSERT PËR DETAJET ORARE (ITEMS)
+    # 3. INSERT PËR DETAJET ORARE (ITEMS) — raw, 1 rresht/artikull shportë
+    #    (retention e shkurtër — shih RAW_DATA_RETENTION_DAYS)
     inserted_items = 0
     if all_items:
         try:
@@ -468,6 +469,30 @@ def run_sales_hour(store: dict, products: list, dt: datetime) -> dict:
                     logger.warning(f"⚠️  Batch SALES_HOURLY {i//batch_size + 1}: Nuk u kthye data")
         except Exception as e:
             logger.error(f"❌ ERROR Kritik INSERT sales_hourly: {e}")
+
+    # 3b. AGREGIMI ORËSH (1 rresht/store/ORË, jo/produkt) — ruhet
+    #     PËRGJITHMONË për ARIMA (1 seri kohore = xhiro/orë). Granulariteti
+    #     për-produkt do prodhonte ~3.4 GB/vit (500 produkte × 15 store ×
+    #     365 ditë × 17 orë) — shumë mbi kufirin 500MB të Supabase free tier.
+    #     Ndërtohet nga all_headers (fatura reale), jo all_items, që
+    #     transactions_count të jetë numër i vërtetë faturash, jo rreshtash.
+    if all_headers:
+        try:
+            hourly_store_agg = {
+                "store_id":           store["store_id"],
+                "date":               dt.date().isoformat(),
+                "hour":               dt.hour,
+                "transactions_count": len(all_headers),
+                "units_sold":         sum(h["total_items"] for h in all_headers),
+                "revenue":            round(sum(h["revenue"] for h in all_headers), 2),
+                "discount_amount":    round(sum(h["discount_amount"] for h in all_headers), 2),
+                "net_revenue":        round(sum(h["net_revenue"] for h in all_headers), 2),
+                "cogs":               round(sum(h["cogs"] for h in all_headers), 2),
+                "gross_profit":       round(sum(h["gross_profit"] for h in all_headers), 2),
+            }
+            supabase.table("sales_hourly_agg").insert(hourly_store_agg).execute()
+        except Exception as e:
+            logger.error(f"❌ ERROR Kritik INSERT sales_hourly_agg: {e}")
 
     # 4. Statistikat për Printimin Final
     stats = {
